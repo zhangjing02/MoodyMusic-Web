@@ -15,10 +15,7 @@ const DB_VERSION = 1;
 const STORE_NAME = 'audioFiles';
 
 const API_CONFIG = {
-    // 自动识别本地开发环境或生产环境自定义域名
-    apiBase: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-        ? 'http://127.0.0.1:8787'
-        : 'https://m-api.changgepd.top',
+    apiBase: window.MOODY_CONFIG?.API_BASE || 'https://m-api.changgepd.ccwu.cc',
     itunes: { enabled: false }
 };
 
@@ -59,7 +56,7 @@ function getWelcomeBackground() {
 
 const CATEGORIES = ['华语', '欧美', '港台', '摇滚', '民谣', 'R&B', '音乐综艺'];
 
-console.log("%c [MOODY] 核心系统就绪 (v12.43 - 路径保护版)", "font-size: 14px; color: #d4af37; font-weight: bold; background: #1a1a1a; padding: 4px 8px; border-radius: 4px;");
+console.log("%c [MOODY] 系统就绪 (v12.58 - 最终修正镜像名)", "font-size: 14px; color: #d4af37; font-weight: bold; background: #1a1a1a; padding: 4px 8px; border-radius: 4px;");
 
 // [V12.40] 终极核心名识别逻辑 (深度治理版：涵盖更多简繁、组合别名、后缀剔除)
 const getCoreName = (name) => {
@@ -1994,17 +1991,8 @@ function checkAlbumResources(artistName, album) {
 
             // 3. 构造远程 URL
             if (songPath) {
-                if (songPath.startsWith('http://') || songPath.startsWith('https://')) {
-                    audioUrl = songPath;
-                } else {
-                    let clean = songPath.replace(/^\/+/, '');
-                    if (clean.startsWith('storage/')) clean = clean.slice(8);
-                    if (!clean.startsWith('music/') && !clean.startsWith('covers/') && !clean.startsWith('lyrics/')) {
-                        clean = 'music/' + clean;
-                    }
-                    const encodedPath = clean.split(/[\\/]/).map(segment => encodeURIComponent(segment)).join('/');
-                    audioUrl = `${API_BASE}/storage/${encodedPath}`;
-                }
+                const encodedPath = songPath.split(/[\\/]/).map(segment => encodeURIComponent(segment)).join('/');
+                audioUrl = `${API_BASE}/storage/${encodedPath}`;
             }
 
             // 发起检查

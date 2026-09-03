@@ -2026,15 +2026,10 @@ async function loadLyrics(item) {
     // 1. 优先尝试从后端返回的静默路径加载
     if (item.lrcPath) {
         let fetchUrl = item.lrcPath;
-        // 兼容云端路径：确保所有相对路径都被正确路由到 /storage/
+        // 兼容云端路径：确保所有相对路径都被正确路由到 /storage/lyrics/
         if (!fetchUrl.startsWith('http') && !fetchUrl.startsWith('/storage/')) {
-            let clean = fetchUrl.replace(/^\/+/, '');
-            if (clean.startsWith('storage/')) clean = clean.slice(8);
-            if (!clean.startsWith('music/') && !clean.startsWith('lyrics/')) {
-                clean = 'music/' + clean;
-            }
-            const encodedLrc = clean.split(/[\\/]/).map(segment => encodeURIComponent(segment)).join('/');
-            fetchUrl = `${window.API_BASE || ''}/storage/${encodedLrc}`;
+            // 后端存的可能是相对路径，也可能是带 lyrics 前缀的，统一拼接
+            fetchUrl = `${window.API_BASE || ''}/storage/${fetchUrl}`;
         } else if (fetchUrl.startsWith('/storage/')) {
             fetchUrl = `${window.API_BASE || ''}${fetchUrl}`;
         }
@@ -2640,13 +2635,7 @@ window.audioPlayer = {
                 if (songPath.startsWith('http')) {
                     targetAudioUrl = songPath;
                 } else {
-                    let clean = songPath.replace(/^\/+/, '');
-                    if (clean.startsWith('storage/')) clean = clean.slice(8);
-                    if (!clean.startsWith('music/') && !clean.startsWith('covers/') && !clean.startsWith('lyrics/')) {
-                        clean = 'music/' + clean;
-                    }
-                    const encodedPath = clean.split(/[\\/]/).map(segment => encodeURIComponent(segment)).join('/');
-                    targetAudioUrl = `${window.API_BASE || ''}/storage/${encodedPath}`;
+                    targetAudioUrl = `${window.API_BASE || ''}/storage/${songPath.split(/[\\/]/).map(segment => encodeURIComponent(segment)).join('/')}`;
                 }
             }
 
@@ -2680,7 +2669,7 @@ window.audioPlayer = {
             const songData = songs[i];
             const songName = typeof songData === 'string' ? songData : songData.title;
             const songPath = typeof songData === 'string' ? null : songData.path;
-            const songLrcPath = typeof songData === 'string' ? null : (songData.lrc_path || songData.lrcPath);
+            const songLrcPath = typeof songData === 'string' ? null : songData.lrcPath;
 
             let audioUrl = '';
             const exactKey = `${songName} - ${artist}`;
@@ -2696,12 +2685,7 @@ window.audioPlayer = {
                 if (songPath.startsWith('http')) {
                     audioUrl = songPath;
                 } else {
-                    let clean = songPath.replace(/^\/+/, '');
-                    if (clean.startsWith('storage/')) clean = clean.slice(8);
-                    if (!clean.startsWith('music/') && !clean.startsWith('covers/') && !clean.startsWith('lyrics/')) {
-                        clean = 'music/' + clean;
-                    }
-                    const encodedPath = clean.split(/[\\/]/).map(segment => encodeURIComponent(segment)).join('/');
+                    const encodedPath = songPath.split(/[\\/]/).map(segment => encodeURIComponent(segment)).join('/');
                     audioUrl = `${window.API_BASE || ''}/storage/${encodedPath}`;
                 }
             }
