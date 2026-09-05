@@ -404,222 +404,173 @@
         }, duration);
     }
 
-    // ==================== 动态音频频谱可视化引擎 (Web Audio API · 录音室级柔顺化) ====================
-    let audioCtx = null;
-    let analyser = null;
-    let sourceNode = null;
-    let freqDataArray = null;
-    let visualizerAnimId = null;
-    let visualizerCtx = null;
-    let isVisualizerRunning = false;
+    // ==================== 音频频谱可视化 (audioMotion-analyzer 专业库) ====================
+    let audioMotion = null; // audioMotion-analyzer 实例
 
-    // 频谱参数 (80根半透明纤细跳动光柱，全画幅柔顺覆盖，增强起伏感与温润半透质感)
-    const VIZ_BAR_COUNT = 80;
-    const VIZ_BAR_SPACING = 3.0;
-    const VIZ_SENSITIVITY = 1.35;
-    // 物理阻尼惯性状态数组 (平滑保存当前高度，彻底消除 60Hz 帧间抖颤)
-    let smoothedHeights = new Float32Array(VIZ_BAR_COUNT);
-
-    function initAudioVisualizer() {
-        if (audioCtx) {
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume().catch(() => {});
-            }
+    /**
+     * 用 audioMotion-analyzer 初始化并启动频谱渲染
+     */
+    function startVisualizer() {
+        // 如果已经运行，只需确保 audioContext 未挂起
+        if (audioMotion) {
+            try { audioMotion.audioCtx.resume(); } catch (e) {}
             return;
         }
 
-        const audio = document.getElementById('audioPlayer');
-        if (!audio) return;
+        const audioEl = document.getElementById('audioPlayer');
+        if (!audioEl) return;
+
+        // 等待 AudioMotionAnalyzer 全局类加载（script 动态加载时的保护）
+        if (typeof AudioMotionAnalyzer === 'undefined') {
+            setTimeout(startVisualizer, 200);
+            return;
+        }
 
         try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (!AudioContext) return;
-            audioCtx = new AudioContext();
-            analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 512;
-            // 采用 0.80 时间常数，兼顾瞬态冲击力与平滑度，让音乐高低起伏更灵动
-            analyser.smoothingTimeConstant = 0.80;
+            audioMotion = new AudioMotionAnalyzer(null, {
+                canvas: dom.visualizerCanvas,   // 复用现有 Canvas
+                source: audioEl,                // 直接传 <audio> 元素，库内部 createMediaElementSource
+                connectSpeakers: true,          // 同时接通扬声器
+                smoothing: 0.82,
+                mode: 2,                        // 1/6 八度频段，柱状图密度与 YouTube 原版一致
+                minFreq: 30,
+                maxFreq: 11000,
+                barSpace: 0.30,                 // 柱间距
+                roundBars: false,               // 关键：平齐柱身，落下时彻底归零，绝不漏出任何圆头或小点
+                showPeaks: false,               // 不显示浮动峰值帽
+                fillAlpha: 0.82,                // 半透明柔顺度
+                lineWidth: 0,
+                showScaleX: false,
+                showScaleY: false,
+                showBgColor: false,             // 背景透明
+                overlay: true,                  // 叠加在视频画卷之上
+                reflexRatio: 0,                 // 无倒影
+                mirror: 0,
+                weightingFilter: 'D',           // D 加权，贴近人耳感知
+                gradient: 'moody-white',        // 自定义纯白半透质感
+            });
 
-            if (!audio._sourceConnected) {
-                sourceNode = audioCtx.createMediaElementSource(audio);
-                sourceNode.connect(analyser);
-                analyser.connect(audioCtx.destination);
-                audio._sourceConnected = true;
-            }
+            // 注册自定义白色半透明渐变，匹配原版柔白质感
+            audioMotion.registerGradient('moody-white', {
+                bgColor: 'transparent',
+                colorStops: [
+                    { pos: 0.0, color: 'rgba(255,255,255,0.85)' },
+                    { pos: 0.5, color: 'rgba(255,255,255,0.55)' },
+                    { pos: 1.0, color: 'rgba(255,255,255,0.10)' }
+                ]
+            });
+            audioMotion.gradient = 'moody-white';
 
-            freqDataArray = new Uint8Array(analyser.frequencyBinCount);
-            console.log('✓ 实时音频频谱引擎已就绪 (80柱纤细半透 + Gamma动态展开 + 物理阻尼)');
+            console.log('[Visualizer] audioMotion-analyzer 已启动 (mode=2, gradient=moody-white)');
         } catch (err) {
-            console.warn('[Visualizer] Web Audio 初始化提示:', err);
+            console.warn('[Visualizer] audioMotion-analyzer 初始化失败，回退到自绘模式:', err);
+            _startFallbackVisualizer();
         }
-    }
-
-    function resizeVisualizerCanvas() {
-        if (!dom.visualizerCanvas) return;
-        const rect = dom.visualizerCanvas.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return;
-        const dpr = window.devicePixelRatio || 1;
-        dom.visualizerCanvas.width = rect.width * dpr;
-        dom.visualizerCanvas.height = rect.height * dpr;
-        if (!visualizerCtx) {
-            visualizerCtx = dom.visualizerCanvas.getContext('2d');
-        }
-        if (visualizerCtx) {
-            visualizerCtx.setTransform(1, 0, 0, 1, 0, 0);
-            visualizerCtx.scale(dpr, dpr);
-        }
-    }
-
-    function startVisualizer() {
-        if (isVisualizerRunning) return;
-        isVisualizerRunning = true;
-        initAudioVisualizer();
-        resizeVisualizerCanvas();
-        renderVisualizerFrame();
     }
 
     function stopVisualizer() {
-        isVisualizerRunning = false;
-        if (visualizerAnimId) {
-            cancelAnimationFrame(visualizerAnimId);
-            visualizerAnimId = null;
+        if (audioMotion) {
+            try { audioMotion.destroy(); } catch (e) {}
+            audioMotion = null;
         }
+        // 清理 fallback
+        if (_fallbackAnimId) {
+            cancelAnimationFrame(_fallbackAnimId);
+            _fallbackAnimId = null;
+        }
+        _isFallbackRunning = false;
     }
 
-    function renderVisualizerFrame() {
-        if (!isVisualizerRunning) return;
-        visualizerAnimId = requestAnimationFrame(renderVisualizerFrame);
+    // ==================== Fallback 自绘频谱（audioMotion 加载失败时兜底）====================
+    let _audioCtxFallback = null;
+    let _analyserFallback = null;
+    let _freqDataFallback = null;
+    let _fallbackAnimId = null;
+    let _isFallbackRunning = false;
+    let _smoothedHeights = new Float32Array(80);
 
-        if (!dom.visualizerCanvas) return;
-        if (!visualizerCtx) {
-            visualizerCtx = dom.visualizerCanvas.getContext('2d');
-            resizeVisualizerCanvas();
-        }
-        if (!visualizerCtx) return;
-
-        const dpr = window.devicePixelRatio || 1;
-        const width = dom.visualizerCanvas.width / dpr;
-        const height = dom.visualizerCanvas.height / dpr;
-
-        visualizerCtx.clearRect(0, 0, width, height);
+    function _startFallbackVisualizer() {
+        if (_isFallbackRunning) return;
+        _isFallbackRunning = true;
 
         const audio = document.getElementById('audioPlayer');
-        const isAudioPlaying = audio && !audio.paused && audio.currentTime > 0;
-
-        if (!analyser || !isAudioPlaying) {
-            drawIdleBars(visualizerCtx, width, height);
-            return;
+        if (audio && !audio._sourceConnected) {
+            try {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                _audioCtxFallback = new Ctx();
+                _analyserFallback = _audioCtxFallback.createAnalyser();
+                _analyserFallback.fftSize = 512;
+                _analyserFallback.smoothingTimeConstant = 0.82;
+                const src = _audioCtxFallback.createMediaElementSource(audio);
+                src.connect(_analyserFallback);
+                _analyserFallback.connect(_audioCtxFallback.destination);
+                audio._sourceConnected = true;
+                _freqDataFallback = new Uint8Array(_analyserFallback.frequencyBinCount);
+            } catch (e) {}
         }
-
-        analyser.getByteFrequencyData(freqDataArray);
-
-        // 1. 人耳听觉对数分频 (Logarithmic / Perceptual Frequency Mapping)
-        // 截取人耳最具节奏感的 210 个频段，低中频密集精细采样，高频柔和过渡
-        const usableBins = Math.min(freqDataArray.length, 210);
-        const rawHeights = new Float32Array(VIZ_BAR_COUNT);
-
-        for (let i = 0; i < VIZ_BAR_COUNT; i++) {
-            const p = i / (VIZ_BAR_COUNT - 1);
-            // 对数指数分布：前半段呈现丰满低频律动，后半段呈现灵动的中高频
-            const logProgress = Math.pow(p, 1.30);
-            const startBin = Math.max(1, Math.floor(logProgress * (usableBins - 8)) + 1);
-            const span = Math.max(1, Math.floor(Math.pow(p, 0.75) * 4) + 1);
-            const endBin = Math.min(usableBins - 1, startBin + span);
-
-            let sum = 0;
-            let count = 0;
-            for (let b = startBin; b <= endBin; b++) {
-                sum += freqDataArray[b] || 0;
-                count++;
-            }
-            let val = count > 0 ? (sum / (count * 255.0)) : 0;
-
-            // 动态等响度均衡补偿 (优雅的听觉加权，让中高频泛音充满活力，但不过度抬升导致平顶饱和)
-            const eqBoost = 0.85 + Math.pow(p, 0.70) * 1.65;
-            val = val * eqBoost;
-
-            // 高动态对比度非线性展开 (Gamma 展开：低噪下沉，瞬态峰值突破，呈现出波澜壮阔的起伏感)
-            val = Math.pow(Math.min(1.0, val), 1.50) * VIZ_SENSITIVITY;
-            val = Math.min(0.96, Math.max(0.02, val));
-            rawHeights[i] = val * (height * 0.92);
-        }
-
-        // 2. 空间轻度滤波 (0.10 / 0.80 / 0.10 既保留各柱独立的音符起伏与山峰峡谷，又消除孤立闪烁)
-        const targetHeights = new Float32Array(VIZ_BAR_COUNT);
-        for (let i = 0; i < VIZ_BAR_COUNT; i++) {
-            const prev = i > 0 ? rawHeights[i - 1] : rawHeights[i];
-            const curr = rawHeights[i];
-            const next = i < VIZ_BAR_COUNT - 1 ? rawHeights[i + 1] : rawHeights[i];
-            targetHeights[i] = prev * 0.10 + curr * 0.80 + next * 0.10;
-        }
-
-        // 3. 时间维度物理阻尼惯性 (Attack 快速起跳, Decay 丝滑缓降, 彻底消除微小震动感)
-        const totalSpacing = (VIZ_BAR_COUNT - 1) * VIZ_BAR_SPACING;
-        const barWidth = Math.max(2.5, (width - totalSpacing) / VIZ_BAR_COUNT);
-
-        for (let i = 0; i < VIZ_BAR_COUNT; i++) {
-            const target = targetHeights[i];
-            if (target > smoothedHeights[i]) {
-                // 快速冲顶 (Attack) 快速捕捉打击乐动态
-                smoothedHeights[i] += (target - smoothedHeights[i]) * 0.40;
-            } else {
-                // 丝滑缓降 (Decay) 类似物理重力阻尼，柔顺飘落
-                smoothedHeights[i] += (target - smoothedHeights[i]) * 0.15;
-            }
-
-            const barHeight = Math.max(4, smoothedHeights[i]);
-            const x = i * (barWidth + VIZ_BAR_SPACING);
-            const y = height - barHeight;
-
-            drawSingleBar(visualizerCtx, x, y, barWidth, barHeight, height);
-        }
+        _renderFallback();
     }
 
-    function drawSingleBar(ctx, x, y, width, barHeight, totalHeight) {
+    function _renderFallback() {
+        if (!_isFallbackRunning) return;
+        _fallbackAnimId = requestAnimationFrame(_renderFallback);
+
+        const canvas = dom.visualizerCanvas;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const W = canvas.width / dpr;
+        const H = canvas.height / dpr;
+        ctx.clearRect(0, 0, W, H);
+
+        const BAR_N = 80, SPACING = 3;
+        const totalSpacing = (BAR_N - 1) * SPACING;
+        const bw = Math.max(2.5, (W - totalSpacing) / BAR_N);
+
+        const audio = document.getElementById('audioPlayer');
+        const playing = audio && !audio.paused && audio.currentTime > 0;
+
+        // Set clip so rounded tops can never bleed below baseline
         ctx.save();
-        const grad = ctx.createLinearGradient(0, y, 0, totalHeight);
-        // 原版温润半透明质感：顶部微亮柔白(0.65)，中部通透晶莹(0.38)，底部与露台暗部自然消融(0.08)
-        grad.addColorStop(0, 'rgba(255, 255, 255, 0.65)');
-        grad.addColorStop(0.55, 'rgba(255, 255, 255, 0.38)');
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0.08)');
-        ctx.fillStyle = grad;
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.25)';
-        ctx.shadowBlur = 3;
         ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(x, y, width, barHeight, [width / 2, width / 2, 0, 0]);
-        } else {
-            ctx.rect(x, y, width, barHeight);
-        }
-        ctx.fill();
-        ctx.restore();
-    }
+        ctx.rect(0, 0, W, H);
+        ctx.clip();
 
-    function drawIdleBars(ctx, width, height) {
-        ctx.save();
-        const totalSpacing = (VIZ_BAR_COUNT - 1) * VIZ_BAR_SPACING;
-        const barWidth = Math.max(2.5, (width - totalSpacing) / VIZ_BAR_COUNT);
-        const time = Date.now() * 0.0016; // 慢速宁静呼吸
-
-        for (let i = 0; i < VIZ_BAR_COUNT; i++) {
-            // 让现有高度平滑缓降过渡到闲置微动波浪，避免瞬间突变
-            const wave = (Math.sin(time * 1.8 + i * 0.14) * 0.5 + 0.5) * 5 + 4;
-            smoothedHeights[i] += (wave - smoothedHeights[i]) * 0.12;
-            const idleHeight = Math.max(3, smoothedHeights[i]);
-            const x = i * (barWidth + VIZ_BAR_SPACING);
-            const y = height - idleHeight;
-
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-            ctx.beginPath();
-            if (ctx.roundRect) {
-                ctx.roundRect(x, y, barWidth, idleHeight, [barWidth / 2, barWidth / 2, 0, 0]);
+        for (let i = 0; i < BAR_N; i++) {
+            let target = 0;
+            if (_analyserFallback && playing && _freqDataFallback) {
+                _analyserFallback.getByteFrequencyData(_freqDataFallback);
+                const p = i / (BAR_N - 1);
+                const bin = Math.floor(Math.pow(p, 1.3) * Math.min(_freqDataFallback.length - 1, 210));
+                const eq = 0.85 + Math.pow(p, 0.7) * 1.65;
+                let val = (_freqDataFallback[bin] / 255) * eq;
+                val = Math.pow(Math.min(val, 1), 1.5) * 1.35;
+                target = Math.min(0.96, Math.max(0.02, val)) * H * 0.92;
             } else {
-                ctx.rect(x, y, barWidth, idleHeight);
+                const t = Date.now() * 0.0016;
+                target = (Math.sin(t * 1.8 + i * 0.14) * 0.5 + 0.5) * 5 + 4;
             }
-            ctx.fill();
+            _smoothedHeights[i] += (target > _smoothedHeights[i])
+                ? (target - _smoothedHeights[i]) * 0.4
+                : (target - _smoothedHeights[i]) * 0.15;
+
+            const bh = _smoothedHeights[i];
+            if (bh < 1.0) continue; // 关键：低于 1px 直接不绘制，彻底消除地面残留小点
+            const x = i * (bw + SPACING);
+            const y = H - bh;
+
+            const grad = ctx.createLinearGradient(0, y, 0, H);
+            grad.addColorStop(0, playing ? 'rgba(255,255,255,0.80)' : 'rgba(255,255,255,0.22)');
+            grad.addColorStop(0.6, playing ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.12)');
+            grad.addColorStop(1, 'rgba(255,255,255,0.08)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(x, y, bw, bh); // 平齐长方形柱体，与 YouTube 原版一致
         }
         ctx.restore();
     }
+
 
     /**
      * 进入 Zen Mode (黑胶沉浸屏保)
@@ -756,8 +707,8 @@
 
         if (dom.zenTrackTitle) dom.zenTrackTitle.textContent = songTitle;
 
-        // 5. 同步时间与进度条
-        if (audio && audio.duration) {
+        // 5. 同步时间与进度条（拖动期间跳过，防止与拖拽视觉冲突）
+        if (audio && audio.duration && !dom._zenProgressDragging?.()) {
             const cur = audio.currentTime || 0;
             const dur = audio.duration || 0;
             if (dom.zenCurrentTime) dom.zenCurrentTime.textContent = formatTime(cur);
@@ -917,19 +868,88 @@
                 if (nextBtn) nextBtn.click();
             });
         }
+        }
 
-        // 进度条拖动/点击寻道
+        // 进度条拖动/点击寻道（支持鼠标拖拽 + 触摸）
         if (dom.zenProgressBar) {
-            dom.zenProgressBar.addEventListener('click', (e) => {
-                e.stopPropagation();
+            let zenIsDragging = false;
+            let zenSeekPercent = -1;
+
+            // 用于计算位置的公共函数
+            const calcZenPct = (clientX) => {
                 const rect = dom.zenProgressBar.getBoundingClientRect();
-                const clickX = e.clientX - rect.left;
-                const pct = Math.max(0, Math.min(1, clickX / rect.width));
+                return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+            };
+
+            // 拖动时实时更新进度条视觉
+            const updateZenFill = (pct) => {
+                if (dom.zenProgressFill) {
+                    dom.zenProgressFill.style.width = `${pct * 100}%`;
+                }
                 const audio = document.getElementById('audioPlayer');
-                if (audio && audio.duration) {
-                    audio.currentTime = pct * audio.duration;
+                if (audio && audio.duration && dom.zenCurrentTime) {
+                    dom.zenCurrentTime.textContent = formatTime(pct * audio.duration);
+                }
+            };
+
+            // --- 鼠标事件 ---
+            dom.zenProgressBar.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                zenIsDragging = true;
+                zenSeekPercent = calcZenPct(e.clientX);
+                updateZenFill(zenSeekPercent);
+                document.body.style.userSelect = 'none';
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (zenIsDragging) {
+                    zenSeekPercent = calcZenPct(e.clientX);
+                    updateZenFill(zenSeekPercent);
                 }
             });
+
+            document.addEventListener('mouseup', () => {
+                if (zenIsDragging) {
+                    zenIsDragging = false;
+                    document.body.style.userSelect = '';
+                    const audio = document.getElementById('audioPlayer');
+                    if (audio && audio.duration && zenSeekPercent >= 0) {
+                        audio.currentTime = zenSeekPercent * audio.duration;
+                    }
+                    zenSeekPercent = -1;
+                }
+            });
+
+            // --- 触摸事件 ---
+            dom.zenProgressBar.addEventListener('touchstart', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                zenIsDragging = true;
+                zenSeekPercent = calcZenPct(e.touches[0].clientX);
+                updateZenFill(zenSeekPercent);
+            }, { passive: false });
+
+            document.addEventListener('touchmove', (e) => {
+                if (zenIsDragging) {
+                    zenSeekPercent = calcZenPct(e.touches[0].clientX);
+                    updateZenFill(zenSeekPercent);
+                }
+            }, { passive: true });
+
+            document.addEventListener('touchend', () => {
+                if (zenIsDragging) {
+                    zenIsDragging = false;
+                    const audio = document.getElementById('audioPlayer');
+                    if (audio && audio.duration && zenSeekPercent >= 0) {
+                        audio.currentTime = zenSeekPercent * audio.duration;
+                    }
+                    zenSeekPercent = -1;
+                }
+            });
+
+            // 将 zenIsDragging 挂到 dom 上，供 syncZenStateWithPlayer 检测
+            dom._zenProgressDragging = () => zenIsDragging;
         }
 
         // --- 5. 全局键盘快捷键 ---
@@ -1000,7 +1020,17 @@
             });
         }
 
-        // --- 8. 智能节电：浏览器后台 Tab 切换时暂停微动背景 ---
+        // --- 8. 监听歌词异步加载完成事件，Zen 模式下立即重建歌词列表 ---
+        // 解决：歌词通过网络异步加载时，切歌瞬间 buildZenLyrics() 检测到空歌词后隐藏区域，
+        // 后续歌词加载完成却无人通知 Zen Mode 重绘的竞态问题。
+        window.addEventListener('moody:lyricsLoaded', (e) => {
+            if (isZenMode) {
+                console.log(`[Zen Lyrics] 收到歌词加载完成通知 (source: ${e.detail?.source})，重建 Zen 歌词列表`);
+                buildZenLyrics();
+            }
+        });
+
+        // --- 9. 智能节电：浏览器后台 Tab 切换时暂停微动背景 ---
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 if (dom.video) dom.video.pause();
@@ -1011,14 +1041,10 @@
             }
         });
 
-        // --- 9. 频谱 Canvas 尺寸自适应与 AudioContext 唤醒 ---
-        window.addEventListener('resize', () => {
-            if (isZenMode) resizeVisualizerCanvas();
-        });
-
+        // --- 9. AudioContext 唤醒 (audioMotion-analyzer 内部已处理 resize，此处只需唤醒 context) ---
         document.addEventListener('click', () => {
-            if (audioCtx && audioCtx.state === 'suspended') {
-                audioCtx.resume().catch(() => {});
+            if (audioMotion && audioMotion.audioCtx && audioMotion.audioCtx.state === 'suspended') {
+                audioMotion.audioCtx.resume().catch(() => {});
             }
         });
 
