@@ -949,19 +949,19 @@ async function initApp() {
     // 清理旧版可能遗留的临时缓存
     try {
         Object.keys(sessionStorage).forEach(k => {
-            if (k.startsWith('moody_artist_')) sessionStorage.removeItem(k);
+            if (k.startsWith('moody_artist_') || k === 'moody_skeleton_cache') sessionStorage.removeItem(k);
         });
     } catch (e) {}
 
     // 1. 从后端加载轻量化骨架 (仅限艺人) - [V13.0 Speedup + D1 Quota Fix]
     try {
         // [D1 Quota Fix] 优先使用 sessionStorage 缓存，同一会话内不重复拉取骨架数据
-        const cachedSkeleton = sessionStorage.getItem('moody_skeleton_cache');
+        const cachedSkeleton = sessionStorage.getItem('moody_skeleton_cache_v2');
         if (cachedSkeleton) {
             allArtistsData = JSON.parse(cachedSkeleton);
             console.log(`[MOODY] 骨架数据命中会话缓存: ${allArtistsData.length} 位艺人 (节省 D1 读取)`);
         } else {
-            // [D1 Quota Fix] 移除 &t=${Date.now()} 缓存击穿，允许 Cloudflare Edge 缓存
+            // [D1 Quota Fix] 允许 Cloudflare Edge 缓存
             const skeletonResponse = await fetch(`${API_BASE}/api/skeleton?light=true`);
             if (skeletonResponse.ok) {
                 const res = await skeletonResponse.json();
@@ -969,7 +969,7 @@ async function initApp() {
 
                 if (allArtistsData.length > 0) {
                     // 存入 sessionStorage 供后续刷新复用
-                    try { sessionStorage.setItem('moody_skeleton_cache', JSON.stringify(allArtistsData)); } catch (e) {}
+                    try { sessionStorage.setItem('moody_skeleton_cache_v2', JSON.stringify(allArtistsData)); } catch (e) {}
                     console.log(`[MOODY] 已快速载入 ${allArtistsData.length} 位艺人骨架`);
                 } else {
                     console.warn('[MOODY] 数据库骨架为空。请确保已执行过初始扫描。');
@@ -2193,8 +2193,9 @@ async function playSong(e, songData, artist) {
             console.warn(`在专辑中找不到歌曲: ${name}`);
             // 兜底方案：如果找不到索引，至少尝试播放这首单曲
             const audioUrl = typeof songData === 'string' ? null : songData.path;
+            const lrcPath = typeof songData === 'string' ? null : (songData.lrcPath || songData.lrc_path || null);
             if (window.audioPlayer.play) {
-                await window.audioPlayer.play(name, artist, album.title, audioUrl);
+                await window.audioPlayer.play(name, artist, album.title, audioUrl, '', lrcPath);
             }
         }
     } else {

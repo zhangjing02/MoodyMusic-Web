@@ -1890,7 +1890,7 @@ async function fetchArtworkFromAPI(song, artist) {
 
 
 // ==================== 播放列表 ====================
-async function addToPlaylist(song, artist, album, audioUrl, lyrics = '') {
+async function addToPlaylist(song, artist, album, audioUrl, lyrics = '', lrcPath = null) {
     const existingIndex = playerState.playlist.findIndex(
         item => item.song === song && item.artist === artist
     );
@@ -1902,12 +1902,15 @@ async function addToPlaylist(song, artist, album, audioUrl, lyrics = '') {
         if (lyrics) {
             playerState.playlist[existingIndex].lyrics = lyrics;
         }
+        if (lrcPath) {
+            playerState.playlist[existingIndex].lrcPath = lrcPath;
+        }
         updatePlaylistUI();
         return existingIndex;
     }
 
     // 添加新歌曲
-    const playlistItem = { song, artist, album, audioUrl, lyrics, artworkUrl: null };
+    const playlistItem = { song, artist, album, audioUrl, lyrics, lrcPath: lrcPath || null, artworkUrl: null };
     playerState.playlist.push(playlistItem);
     updatePlaylistUI();
     showNotification(`已添加: ${song}`);
@@ -2060,12 +2063,11 @@ async function loadLyrics(item) {
     // 1. 优先尝试从后端返回的静默路径加载
     if (item.lrcPath) {
         let fetchUrl = item.lrcPath;
-        // 兼容云端路径：确保所有相对路径都被正确路由到 /storage/lyrics/
-        if (!fetchUrl.startsWith('http') && !fetchUrl.startsWith('/storage/')) {
-            // 后端存的可能是相对路径，也可能是带 lyrics 前缀的，统一拼接
-            fetchUrl = `${window.API_BASE || ''}/storage/${fetchUrl}`;
-        } else if (fetchUrl.startsWith('/storage/')) {
-            fetchUrl = `${window.API_BASE || ''}${fetchUrl}`;
+        // 兼容云端路径：确保所有相对路径都被正确路由并安全编码
+        if (!fetchUrl.startsWith('http')) {
+            const cleanPath = fetchUrl.replace(/^\/+/, '').replace(/^storage\//, '');
+            const encodedSegments = cleanPath.split(/[\\/]/).map(seg => encodeURIComponent(seg)).join('/');
+            fetchUrl = `${window.API_BASE || ''}/storage/${encodedSegments}`;
         }
 
         // 核心修复：增加时间戳防止浏览器强效缓存旧歌词
@@ -2645,8 +2647,8 @@ function prefetchNextSong() {
 }
 
 window.audioPlayer = {
-    play: async (song, artist, album, audioUrl, lyrics) => {
-        const index = await addToPlaylist(song, artist, album, audioUrl, lyrics);
+    play: async (song, artist, album, audioUrl, lyrics, lrcPath) => {
+        const index = await addToPlaylist(song, artist, album, audioUrl, lyrics, lrcPath);
         return playSongAtIndex(index); // [Modified] 返回播放结果
     },
     // 播放整张专辑 (重构: 基于 HEAD 检查的精简逻辑)
