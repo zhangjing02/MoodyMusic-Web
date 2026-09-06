@@ -1588,6 +1588,8 @@ async function playSongAtIndex(index) {
 
     // 1. 资源完整性检查：URL 缺失直接跳过
     if (!item.audioUrl) {
+        // [Optimistic UI Rollback] 资源缺失时回滚高亮
+        if (window.clearAlbumViewActiveState) window.clearAlbumViewActiveState();
         return autoSkipToNext('音频地址缺失');
     }
 
@@ -1605,6 +1607,8 @@ async function playSongAtIndex(index) {
 
     if (!isAvailable) {
         setLoadingState(false);
+        // [Optimistic UI Rollback] 资源不可用时回滚高亮
+        if (window.clearAlbumViewActiveState) window.clearAlbumViewActiveState();
         return autoSkipToNext('资源不可用');
     }
 
@@ -1690,6 +1694,11 @@ async function playSongAtIndex(index) {
             showNotification(`播放失败: ${err.message}`);
         }
 
+        // [Optimistic UI Rollback] 播放失败时回滚乐观高亮，恢复到真实播放状态
+        if (window.clearAlbumViewActiveState) {
+            window.clearAlbumViewActiveState();
+        }
+
         setLoadingState(false);
         playerState.isPlaying = false;
         updatePlayPauseButton();
@@ -1698,7 +1707,7 @@ async function playSongAtIndex(index) {
 }
 
 // 同步更新专辑页面的歌曲选中状态 (Injects Playing Indicator)
-window.updateAlbumViewActiveState = function (songName, artistName) {
+window.updateAlbumViewActiveState = function (songName, artistName, optimistic = false) {
     if (!songName) return;
     const rows = document.querySelectorAll('.st-row');
     let matchedCount = 0;
@@ -1724,17 +1733,26 @@ window.updateAlbumViewActiveState = function (songName, artistName) {
             if (currentTitle === songName) {
                 matchedCount++;
                 row.classList.add('active');
-                row.classList.toggle('playing', playerState.isPlaying);
 
-                // 注入指示器 HTML（如果不存在）
-                let bars = row.querySelector('.playing-bars');
-                if (!bars) {
-                    bars = document.createElement('span');
-                    bars.className = 'playing-bars';
-                    bars.innerHTML = '<span></span><span></span><span></span><span></span>';
-                    songNameEl.appendChild(bars);
+                if (optimistic) {
+                    // [Optimistic] 乐观高亮：立即切换选中状态，但不加播放动画指示器
+                    // 避免在网络还没确认前就显示"正在播放"动画
+                    row.classList.remove('playing');
+                    const bars = row.querySelector('.playing-bars');
+                    if (bars) bars.remove();
+                } else {
+                    // [Confirmed] 播放已确认：加上完整的播放中动画
+                    row.classList.toggle('playing', playerState.isPlaying);
+
+                    // 注入指示器 HTML（如果不存在）
+                    let bars = row.querySelector('.playing-bars');
+                    if (!bars) {
+                        bars = document.createElement('span');
+                        bars.className = 'playing-bars';
+                        bars.innerHTML = '<span></span><span></span><span></span><span></span>';
+                        songNameEl.appendChild(bars);
+                    }
                 }
-                // 确保 bars 的动画状态与 row 类同步（CSS 已处理，此处为冗余加固）
                 return;
             }
         }
@@ -1744,8 +1762,23 @@ window.updateAlbumViewActiveState = function (songName, artistName) {
     });
 
     if (matchedCount > 0) {
-        console.log(`[Indicator] Sync: "${songName}", Matched: ${matchedCount}, Playing: ${playerState.isPlaying}`);
+        console.log(`[Indicator] ${optimistic ? 'Optimistic' : 'Confirmed'} sync: "${songName}", Matched: ${matchedCount}, Playing: ${optimistic ? 'pending' : playerState.isPlaying}`);
     }
+}
+
+// [Optimistic UI] 播放失败时调用，清除乐观高亮，回滚到播放前状态
+window.clearAlbumViewActiveState = function () {
+    const rows = document.querySelectorAll('.st-row');
+    rows.forEach(row => {
+        row.classList.remove('active', 'playing');
+        const bars = row.querySelector('.playing-bars');
+        if (bars) bars.remove();
+    });
+    // 若有当前正在播放的歌曲，恢复其高亮
+    if (typeof playerState !== 'undefined' && playerState.currentSong) {
+        window.updateAlbumViewActiveState(playerState.currentSong, playerState.currentArtist);
+    }
+    console.log('[Indicator] Rolled back optimistic highlight.');
 }
 
 // ==================== 进度条 ====================
@@ -1890,7 +1923,7 @@ async function fetchArtworkFromAPI(song, artist) {
 
 
 // ==================== 播放列表 ====================
-async function addToPlaylist(song, artist, album, audioUrl, lyrics = '', lrcPath = null) {
+async function addToPlaylist(song, artist, album, audioUrl, lyrics = '') {
     const existingIndex = playerState.playlist.findIndex(
         item => item.song === song && item.artist === artist
     );
@@ -1902,15 +1935,12 @@ async function addToPlaylist(song, artist, album, audioUrl, lyrics = '', lrcPath
         if (lyrics) {
             playerState.playlist[existingIndex].lyrics = lyrics;
         }
-        if (lrcPath) {
-            playerState.playlist[existingIndex].lrcPath = lrcPath;
-        }
         updatePlaylistUI();
         return existingIndex;
     }
 
     // 添加新歌曲
-    const playlistItem = { song, artist, album, audioUrl, lyrics, lrcPath: lrcPath || null, artworkUrl: null };
+    const playlistItem = { song, artist, album, audioUrl, lyrics, artworkUrl: null };
     playerState.playlist.push(playlistItem);
     updatePlaylistUI();
     showNotification(`已添加: ${song}`);
@@ -2063,11 +2093,12 @@ async function loadLyrics(item) {
     // 1. 优先尝试从后端返回的静默路径加载
     if (item.lrcPath) {
         let fetchUrl = item.lrcPath;
-        // 兼容云端路径：确保所有相对路径都被正确路由并安全编码
-        if (!fetchUrl.startsWith('http')) {
-            const cleanPath = fetchUrl.replace(/^\/+/, '').replace(/^storage\//, '');
-            const encodedSegments = cleanPath.split(/[\\/]/).map(seg => encodeURIComponent(seg)).join('/');
-            fetchUrl = `${window.API_BASE || ''}/storage/${encodedSegments}`;
+        // 兼容云端路径：确保所有相对路径都被正确路由到 /storage/lyrics/
+        if (!fetchUrl.startsWith('http') && !fetchUrl.startsWith('/storage/')) {
+            // 后端存的可能是相对路径，也可能是带 lyrics 前缀的，统一拼接
+            fetchUrl = `${window.API_BASE || ''}/storage/${fetchUrl}`;
+        } else if (fetchUrl.startsWith('/storage/')) {
+            fetchUrl = `${window.API_BASE || ''}${fetchUrl}`;
         }
 
         // 核心修复：增加时间戳防止浏览器强效缓存旧歌词
@@ -2647,8 +2678,8 @@ function prefetchNextSong() {
 }
 
 window.audioPlayer = {
-    play: async (song, artist, album, audioUrl, lyrics, lrcPath) => {
-        const index = await addToPlaylist(song, artist, album, audioUrl, lyrics, lrcPath);
+    play: async (song, artist, album, audioUrl, lyrics) => {
+        const index = await addToPlaylist(song, artist, album, audioUrl, lyrics);
         return playSongAtIndex(index); // [Modified] 返回播放结果
     },
     // 播放整张专辑 (重构: 基于 HEAD 检查的精简逻辑)
