@@ -25,80 +25,80 @@
             name: '夜市暖灯吉他',
             desc: '暖光灯串、木吉他独奏与闭目沉浸的听歌少女',
             icon: '🎸',
-            file: VIDEO_BASE + 'karen_street_acoustic.mp4?v=4.0',
+            file: VIDEO_BASE + 'karen_street_acoustic.mp4?v=4.1',
             localFile: 'src/assets/video/karen_street_acoustic.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_street_acoustic.webm?v=4.0',
-            imageFallback: 'src/assets/images/karen_street_acoustic.jpg?v=4.0'
+            fallbackFile: VIDEO_BASE + 'karen_street_acoustic.webm?v=4.1',
+            imageFallback: 'src/assets/images/karen_street_acoustic.jpg?v=4.1'
         },
         karen_midnight_cafe: {
             id: 'karen_midnight_cafe',
             name: '深夜电台录音室',
             desc: '温馨复古录音室、暖色台灯、经典黑胶与咖啡',
             icon: '🎙️',
-            file: VIDEO_BASE + 'karen_midnight_cafe.mp4?v=4.0',
+            file: VIDEO_BASE + 'karen_midnight_cafe.mp4?v=4.1',
             localFile: 'src/assets/video/karen_midnight_cafe.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_midnight_cafe.webm?v=4.0',
-            imageFallback: 'src/assets/images/karen_midnight_cafe.jpg?v=4.0'
+            fallbackFile: VIDEO_BASE + 'karen_midnight_cafe.webm?v=4.1',
+            imageFallback: 'src/assets/images/karen_midnight_cafe.jpg?v=4.1'
         },
         karen_candle_devotion: {
             id: 'karen_candle_devotion',
             name: '烛光静修小室',
             desc: '暖意烛光、复古台灯与静谧书斋',
             icon: '🕯️',
-            file: VIDEO_BASE + 'karen_candle_devotion.mp4?v=4.0',
+            file: VIDEO_BASE + 'karen_candle_devotion.mp4?v=4.1',
             localFile: 'src/assets/video/karen_candle_devotion.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_candle_devotion.webm?v=4.0',
-            imageFallback: 'src/assets/images/karen_candle_devotion.jpg?v=4.0'
+            fallbackFile: VIDEO_BASE + 'karen_candle_devotion.webm?v=4.1',
+            imageFallback: 'src/assets/images/karen_candle_devotion.jpg?v=4.1'
         },
         karen_rainy_night: {
             id: 'karen_rainy_night',
             name: '雨夜微光静息',
             desc: '窗外沥沥小雨，室内温柔爵士与安息时光',
             icon: '🌧️',
-            file: VIDEO_BASE + 'karen_rainy_night.mp4?v=4.0',
+            file: VIDEO_BASE + 'karen_rainy_night.mp4?v=4.1',
             localFile: 'src/assets/video/karen_rainy_night.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_rainy_night.webm?v=4.0',
-            imageFallback: 'src/assets/images/karen_rainy_night.jpg?v=4.0'
+            fallbackFile: VIDEO_BASE + 'karen_rainy_night.webm?v=4.1',
+            imageFallback: 'src/assets/images/karen_rainy_night.jpg?v=4.1'
         },
         karen_mountain_chapel: {
             id: 'karen_mountain_chapel',
             name: '远山圣殿晨曦',
             desc: '远山微风、圣殿晨光与静心时刻',
             icon: '⛪',
-            file: VIDEO_BASE + 'karen_mountain_chapel.mp4?v=4.0',
+            file: VIDEO_BASE + 'karen_mountain_chapel.mp4?v=4.1',
             localFile: 'src/assets/video/karen_mountain_chapel.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_mountain_chapel.webm?v=4.0',
-            imageFallback: 'src/assets/images/karen_mountain_chapel.jpg?v=4.0'
+            fallbackFile: VIDEO_BASE + 'karen_mountain_chapel.webm?v=4.1',
+            imageFallback: 'src/assets/images/karen_mountain_chapel.jpg?v=4.1'
         },
         karen_morning_grace: {
             id: 'karen_morning_grace',
             name: '晨光初醒赞美',
             desc: '清晨的第一缕温暖日光与醇香咖啡',
             icon: '☕',
-            file: VIDEO_BASE + 'karen_morning_grace.mp4?v=4.0',
+            file: VIDEO_BASE + 'karen_morning_grace.mp4?v=4.1',
             localFile: 'src/assets/video/karen_morning_grace.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_morning_grace.webm?v=4.0',
-            imageFallback: 'src/assets/images/karen_morning_grace.jpg?v=4.0'
+            fallbackFile: VIDEO_BASE + 'karen_morning_grace.webm?v=4.1',
+            imageFallback: 'src/assets/images/karen_morning_grace.jpg?v=4.1'
         },
         karen_peaceful_rest: {
             id: 'karen_peaceful_rest',
             name: '安息静水边',
             desc: '微风拂过绿野，轻柔抚慰疲惫心灵',
             icon: '🕊️',
-            file: VIDEO_BASE + 'karen_peaceful_rest.mp4?v=4.0',
+            file: VIDEO_BASE + 'karen_peaceful_rest.mp4?v=4.1',
             localFile: 'src/assets/video/karen_peaceful_rest.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_peaceful_rest.webm?v=4.0',
-            imageFallback: 'src/assets/images/karen_peaceful_rest.jpg?v=4.0'
+            fallbackFile: VIDEO_BASE + 'karen_peaceful_rest.webm?v=4.1',
+            imageFallback: 'src/assets/images/karen_peaceful_rest.jpg?v=4.1'
         },
         karen_worship_jazz: {
             id: 'karen_worship_jazz',
             name: '晚安祷告爵士',
             desc: '温馨窗台、夜间微光与治愈陪伴',
             icon: '🌙',
-            file: VIDEO_BASE + 'karen_worship_jazz.mp4?v=4.0',
+            file: VIDEO_BASE + 'karen_worship_jazz.mp4?v=4.1',
             localFile: 'src/assets/video/karen_worship_jazz.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_worship_jazz.webm?v=4.0',
-            imageFallback: 'src/assets/images/karen_worship_jazz.jpg?v=4.0'
+            fallbackFile: VIDEO_BASE + 'karen_worship_jazz.webm?v=4.1',
+            imageFallback: 'src/assets/images/karen_worship_jazz.jpg?v=4.1'
         },
         ocean: {
             id: 'ocean',
