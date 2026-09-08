@@ -75,10 +75,10 @@
             name: '晨光初醒赞美',
             desc: '清晨的第一缕温暖日光与醇香咖啡',
             icon: '☕',
-            file: VIDEO_BASE + 'karen_morning_grace.mp4?v=4.1',
+            file: VIDEO_BASE + 'karen_morning_grace.mp4?v=5.0',
             localFile: 'src/assets/video/karen_morning_grace.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_morning_grace.webm?v=4.1',
-            imageFallback: 'src/assets/images/karen_morning_grace.jpg?v=4.1'
+            fallbackFile: VIDEO_BASE + 'karen_morning_grace.webm?v=5.0',
+            imageFallback: 'src/assets/images/karen_morning_grace.jpg?v=5.0'
         },
         karen_peaceful_rest: {
             id: 'karen_peaceful_rest',
