@@ -95,10 +95,10 @@
             name: '晚安祷告爵士',
             desc: '温馨窗台、夜间微光与治愈陪伴',
             icon: '🌙',
-            file: VIDEO_BASE + 'karen_worship_jazz.mp4?v=4.1',
+            file: VIDEO_BASE + 'karen_worship_jazz.mp4?v=5.0',
             localFile: 'src/assets/video/karen_worship_jazz.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_worship_jazz.webm?v=4.1',
-            imageFallback: 'src/assets/images/karen_worship_jazz.jpg?v=4.1'
+            fallbackFile: VIDEO_BASE + 'karen_worship_jazz.webm?v=5.0',
+            imageFallback: 'src/assets/images/karen_worship_jazz.jpg?v=5.0'
         },
         ocean: {
             id: 'ocean',
