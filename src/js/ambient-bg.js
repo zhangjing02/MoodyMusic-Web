@@ -25,10 +25,10 @@
             name: '夜市暖灯吉他',
             desc: '暖光灯串、木吉他独奏与闭目沉浸的听歌少女',
             icon: '🎸',
-            file: VIDEO_BASE + 'karen_street_acoustic.mp4?v=4.1',
+            file: VIDEO_BASE + 'karen_street_acoustic.mp4?v=5.0',
             localFile: 'src/assets/video/karen_street_acoustic.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_street_acoustic.webm?v=4.1',
-            imageFallback: 'src/assets/images/karen_street_acoustic.jpg?v=4.1'
+            fallbackFile: VIDEO_BASE + 'karen_street_acoustic.webm?v=5.0',
+            imageFallback: 'src/assets/images/karen_street_acoustic.jpg?v=5.0'
         },
         karen_midnight_cafe: {
             id: 'karen_midnight_cafe',
