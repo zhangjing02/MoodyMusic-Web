@@ -65,10 +65,10 @@
             name: '远山圣殿晨曦',
             desc: '远山微风、圣殿晨光与静心时刻',
             icon: '⛪',
-            file: VIDEO_BASE + 'karen_mountain_chapel.mp4?v=4.1',
+            file: VIDEO_BASE + 'karen_mountain_chapel.mp4?v=5.0',
             localFile: 'src/assets/video/karen_mountain_chapel.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_mountain_chapel.webm?v=4.1',
-            imageFallback: 'src/assets/images/karen_mountain_chapel.jpg?v=4.1'
+            fallbackFile: VIDEO_BASE + 'karen_mountain_chapel.webm?v=5.0',
+            imageFallback: 'src/assets/images/karen_mountain_chapel.jpg?v=5.0'
         },
         karen_morning_grace: {
             id: 'karen_morning_grace',
