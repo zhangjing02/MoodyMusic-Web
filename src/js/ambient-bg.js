@@ -35,10 +35,10 @@
             name: '深夜电台录音室',
             desc: '温馨复古录音室、暖色台灯、经典黑胶与咖啡',
             icon: '🎙️',
-            file: VIDEO_BASE + 'karen_midnight_cafe.mp4?v=4.1',
+            file: VIDEO_BASE + 'karen_midnight_cafe.mp4?v=5.0',
             localFile: 'src/assets/video/karen_midnight_cafe.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_midnight_cafe.webm?v=4.1',
-            imageFallback: 'src/assets/images/karen_midnight_cafe.jpg?v=4.1'
+            fallbackFile: VIDEO_BASE + 'karen_midnight_cafe.webm?v=5.0',
+            imageFallback: 'src/assets/images/karen_midnight_cafe.jpg?v=5.0'
         },
         karen_candle_devotion: {
             id: 'karen_candle_devotion',
