@@ -85,10 +85,10 @@
             name: '安息静水边',
             desc: '微风拂过绿野，轻柔抚慰疲惫心灵',
             icon: '🕊️',
-            file: VIDEO_BASE + 'karen_peaceful_rest.mp4?v=4.1',
+            file: VIDEO_BASE + 'karen_peaceful_rest.mp4?v=5.0',
             localFile: 'src/assets/video/karen_peaceful_rest.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_peaceful_rest.webm?v=4.1',
-            imageFallback: 'src/assets/images/karen_peaceful_rest.jpg?v=4.1'
+            fallbackFile: VIDEO_BASE + 'karen_peaceful_rest.webm?v=5.0',
+            imageFallback: 'src/assets/images/karen_peaceful_rest.jpg?v=5.0'
         },
         karen_worship_jazz: {
             id: 'karen_worship_jazz',
