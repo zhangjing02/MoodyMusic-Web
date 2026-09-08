@@ -55,10 +55,10 @@
             name: '雨夜微光静息',
             desc: '窗外沥沥小雨，室内温柔爵士与安息时光',
             icon: '🌧️',
-            file: VIDEO_BASE + 'karen_rainy_night.mp4?v=4.1',
+            file: VIDEO_BASE + 'karen_rainy_night.mp4?v=5.0',
             localFile: 'src/assets/video/karen_rainy_night.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_rainy_night.webm?v=4.1',
-            imageFallback: 'src/assets/images/karen_rainy_night.jpg?v=4.1'
+            fallbackFile: VIDEO_BASE + 'karen_rainy_night.webm?v=5.0',
+            imageFallback: 'src/assets/images/karen_rainy_night.jpg?v=5.0'
         },
         karen_mountain_chapel: {
             id: 'karen_mountain_chapel',
