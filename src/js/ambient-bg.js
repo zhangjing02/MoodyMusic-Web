@@ -45,10 +45,10 @@
             name: '烛光静修小室',
             desc: '暖意烛光、复古台灯与静谧书斋',
             icon: '🕯️',
-            file: VIDEO_BASE + 'karen_candle_devotion.mp4?v=4.1',
+            file: VIDEO_BASE + 'karen_candle_devotion.mp4?v=5.0',
             localFile: 'src/assets/video/karen_candle_devotion.mp4',
-            fallbackFile: VIDEO_BASE + 'karen_candle_devotion.webm?v=4.1',
-            imageFallback: 'src/assets/images/karen_candle_devotion.jpg?v=4.1'
+            fallbackFile: VIDEO_BASE + 'karen_candle_devotion.webm?v=5.0',
+            imageFallback: 'src/assets/images/karen_candle_devotion.jpg?v=5.0'
         },
         karen_rainy_night: {
             id: 'karen_rainy_night',
