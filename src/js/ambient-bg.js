@@ -303,6 +303,13 @@
         dom.zenPauseIcon = document.getElementById('zenPauseIcon');
         dom.zenNextBtn = document.getElementById('zenNextBtn');
 
+        // 沉浸屏保载入过渡页 DOM 缓存
+        dom.zenTransitionOverlay = document.getElementById('zenTransitionOverlay');
+        dom.zenTransitionIcon = document.getElementById('zenTransitionIcon');
+        dom.zenTransitionTitle = document.getElementById('zenTransitionTitle');
+        dom.zenTransitionDesc = document.getElementById('zenTransitionDesc');
+        dom.zenTransitionTip = document.getElementById('zenTransitionTip');
+
         // 实景图片与动态音频频谱 DOM 缓存
         dom.image = document.getElementById('ambientImage');
         dom.dustParticles = document.getElementById('ambientDustParticles');
@@ -316,6 +323,11 @@
                     const localFallback = 'src/assets/images/sunset.jpg';
                     console.warn(`[Ambient] 远端日落素材加载受阻，平滑降级至本地资源: ${localFallback}`);
                     dom.image.src = localFallback;
+                }
+            });
+            dom.image.addEventListener('load', function () {
+                if (isZenMode && isTransitionActive) {
+                    hideZenTransition();
                 }
             });
         }
@@ -333,6 +345,18 @@
                     if (isZenMode) {
                         dom.video.play().catch(() => {});
                     }
+                }
+            });
+
+            // 当视频首帧实际开始渲染并流畅播放时，平滑揭开过渡页，告别黑屏等待
+            dom.video.addEventListener('playing', function () {
+                if (isZenMode && isTransitionActive) {
+                    hideZenTransition();
+                }
+            });
+            dom.video.addEventListener('timeupdate', function () {
+                if (isZenMode && isTransitionActive && dom.video.currentTime > 0.05) {
+                    hideZenTransition();
                 }
             });
         }
@@ -415,8 +439,14 @@
                 dom.dustParticles.style.display = (scene.id === 'sunset') ? 'block' : 'none';
             }
         } else if (scene.file) {
+            // 核心体验保障：如果有海报图，先在底层常驻显示海报，杜绝视频解码等待时的黑屏底衬
             if (dom.image) {
-                dom.image.style.display = 'none';
+                if (scene.imageFallback) {
+                    dom.image.src = scene.imageFallback;
+                    dom.image.style.display = 'block';
+                } else {
+                    dom.image.style.display = 'none';
+                }
             }
             if (dom.dustParticles) {
                 dom.dustParticles.style.display = 'none';
@@ -449,6 +479,11 @@
             if (dom.dustParticles) {
                 dom.dustParticles.style.display = 'none';
             }
+        }
+
+        // 若在屏保激活状态下切换场景，同步呈现优雅过渡页
+        if (isZenMode && scene && scene.id !== 'none') {
+            showZenTransition(scene, '正在切换视听画卷...');
         }
 
         // 更新侧边栏底部 Dock 的名称和图标
@@ -685,6 +720,50 @@
     }
 
 
+    let zenTransitionTimer = null;
+    let isTransitionActive = false;
+
+    /**
+     * 呈现沉浸屏保载入优雅过渡页（彻底消除黑屏等待）
+     */
+    function showZenTransition(scene, customTip) {
+        if (!dom.zenTransitionOverlay || !scene) return;
+        isTransitionActive = true;
+        clearTimeout(zenTransitionTimer);
+
+        if (dom.zenTransitionIcon) dom.zenTransitionIcon.textContent = scene.icon || '🌙';
+        if (dom.zenTransitionTitle) dom.zenTransitionTitle.textContent = scene.name || '沉浸视听';
+        if (dom.zenTransitionDesc) dom.zenTransitionDesc.textContent = scene.desc || '';
+        if (dom.zenTransitionTip) dom.zenTransitionTip.textContent = customTip || '沉浸视听画卷载入中...';
+
+        dom.zenTransitionOverlay.classList.add('active');
+
+        // 安全兜底计时器：防止弱网或极端情况下视频加载超时卡住过渡页 (最长显示 2.5 秒后平滑揭开)
+        zenTransitionTimer = setTimeout(() => {
+            hideZenTransition();
+        }, 2500);
+    }
+
+    /**
+     * 隐去沉浸屏保载入过渡页
+     */
+    function hideZenTransition(immediate = false) {
+        if (!dom.zenTransitionOverlay) return;
+        isTransitionActive = false;
+        clearTimeout(zenTransitionTimer);
+
+        if (immediate) {
+            dom.zenTransitionOverlay.classList.remove('active');
+        } else {
+            // 稍作微延迟平滑渐隐，保证视觉柔顺度
+            setTimeout(() => {
+                if (!isTransitionActive && dom.zenTransitionOverlay) {
+                    dom.zenTransitionOverlay.classList.remove('active');
+                }
+            }, 80);
+        }
+    }
+
     /**
      * 进入 Zen Mode (黑胶沉浸屏保)
      */
@@ -693,6 +772,16 @@
         isZenMode = true;
         document.body.classList.add('zen-active');
         closeSwitchMenu();
+
+        const scene = AMBIENT_SCENES[currentSceneId];
+
+        // 核心体验优化：在黑屏加载微动背景前，先唤出优雅过渡页，杜绝生硬黑屏
+        if (scene && scene.id !== 'none') {
+            const isVideoReady = dom.video && !dom.video.paused && dom.video.currentTime > 0.1 && dom.video.readyState >= 3;
+            if (!isVideoReady) {
+                showZenTransition(scene, '正在呈现沉浸画卷 · 步入禅意微光...');
+            }
+        }
 
         // 默认先浮现一次 HUD，4秒后隐去
         showZenHud(4000);
@@ -719,6 +808,9 @@
         document.body.classList.remove('zen-active');
         clearTimeout(zenHudTimer);
         if (dom.zenOverlay) dom.zenOverlay.classList.remove('zen-show-hud');
+
+        // 立即隐去载入过渡页
+        hideZenTransition(true);
 
         // 退出屏保后，立即暂停微动画视频，释放 GPU/CPU
         if (dom.video) {
