@@ -3094,22 +3094,32 @@ const RoamingManager = {
 
             if (!albums || albums.length === 0) continue;
 
-            // 2. 挑选有歌曲的专辑
-            const validAlbums = albums.filter(a => a.songs && a.songs.length > 0);
+            // 2. 严格筛选包含已点亮有效音源的专辑（过滤掉全专辑歌曲均暂缺的空壳）
+            const playableFilter = (s) => {
+                const sName = typeof s === 'string' ? s : s.title;
+                const sPath = typeof s === 'string' ? null : s.path;
+                const exactKey = `${sName} - ${randomArtist.name}`;
+                const bulkKey = `${sName} - 本地音乐`;
+                const hasLocal = (window.localSongsMap && (window.localSongsMap.has(exactKey) || window.localSongsMap.has(bulkKey))) ||
+                                 (playerState.uploadedFiles && playerState.uploadedFiles.has(sName));
+                return hasLocal || (typeof sPath === 'string' && sPath.trim().length > 0);
+            };
+
+            const validAlbums = albums.filter(a => a.songs && a.songs.some(playableFilter));
             if (validAlbums.length === 0) continue;
             const randomAlbum = validAlbums[Math.floor(Math.random() * validAlbums.length)];
 
-            // 3. 挑选歌曲
-            const songs = randomAlbum.songs;
-            if (!songs || songs.length === 0) continue;
-            const randomSong = songs[Math.floor(Math.random() * songs.length)];
+            // 3. 仅从已点亮的有效音源歌曲中抽选（100% 杜绝抽选到『暂缺』/未点亮歌曲）
+            const playableSongs = randomAlbum.songs.filter(playableFilter);
+            if (playableSongs.length === 0) continue;
+            const randomSong = playableSongs[Math.floor(Math.random() * playableSongs.length)];
             const songName = typeof randomSong === 'string' ? randomSong : randomSong.title;
             const songPath = typeof randomSong === 'string' ? null : randomSong.path;
             const songLrcPath = typeof randomSong === 'string' ? null : (randomSong.lrcPath || randomSong.lrc_path || null);
 
-            // 4. 去重检查 (最近 50 首内避免重复)
+            // 4. 去重检查 (优先保证全会话内永不重复，前 10 次尝试拒绝已播曲目)
             const sig = `${songName} - ${randomArtist.name}`;
-            if (this.recentSignatures.has(sig) && attempt < 9) {
+            if (this.recentSignatures.has(sig) && attempt < 10) {
                 continue;
             }
 
@@ -3141,9 +3151,9 @@ const RoamingManager = {
                 albumCoverUrl = `${window.API_BASE}${albumCoverUrl.startsWith('/') ? '' : '/'}${albumCoverUrl}`;
             }
 
-            // 记录去重集合
+            // 记录已播集合（去重容量扩充至 500 首，确保会话内绝不重复）
             this.recentSignatures.add(sig);
-            if (this.recentSignatures.size > 50) {
+            if (this.recentSignatures.size > 500) {
                 const firstSig = this.recentSignatures.values().next().value;
                 this.recentSignatures.delete(firstSig);
             }
