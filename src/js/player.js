@@ -788,6 +788,34 @@ function bindPlayerEvents() {
 
     // 快捷键支持 (全局但限弹窗激活)
     document.addEventListener('keydown', handleEditorShortcuts);
+
+    // 监听页面休眠/切出唤醒与网络重连，实现漫游模式生命周期保活
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            console.log('[Lifecycle] 页面恢复前台可见');
+            if (window.RoamingManager && window.RoamingManager.isActive) {
+                // 1. 恢复前台时立即补充在后台消耗的漫游预缓冲
+                window.RoamingManager.fillQueue();
+                // 2. 检查播放器是否在后台播放完毕但未推进切歌
+                if (player && player.audio) {
+                    if (player.audio.ended || (playerState.isPlaying && player.audio.paused)) {
+                        console.log('[Lifecycle] 唤醒检测：音频已结束或处于停滞，推进下一首');
+                        window.RoamingManager.playNext();
+                    }
+                }
+            }
+        }
+    });
+
+    window.addEventListener('online', () => {
+        console.log('[Network] 网络已重新连接');
+        if (window.RoamingManager && window.RoamingManager.isActive) {
+            window.RoamingManager.fillQueue();
+            if (player && player.audio && player.audio.paused && playerState.isPlaying) {
+                window.RoamingManager.playNext();
+            }
+        }
+    });
 }
 
 // ==================== 歌词拖拽调整 ====================
@@ -1589,7 +1617,7 @@ function updatePlayPauseButton() {
 // 手动插值动画已改为 CSS 过渡，此处移除原有函数
 
 function playPrevious() {
-    if (window.RoamingManager && window.RoamingManager.isActive) {
+    if (window.RoamingManager && (window.RoamingManager.isActive || playerState.isRoaming)) {
         window.RoamingManager.playPrevious();
         return;
     }
@@ -1603,11 +1631,19 @@ function playPrevious() {
 }
 
 function playNext() {
-    if (window.RoamingManager && window.RoamingManager.isActive) {
+    if (window.RoamingManager && (window.RoamingManager.isActive || playerState.isRoaming)) {
         window.RoamingManager.playNext();
         return;
     }
     if (playerState.playlist.length === 0) return;
+
+    // 防御性保护：如果播放列表仅有 1 首歌且漫游管理器存在，绝不陷入单曲死循环，转交漫游引擎拉取新歌
+    if (playerState.playlist.length === 1 && window.RoamingManager) {
+        console.warn('[Player] 列表仅1首且触发 playNext，转交漫游引擎拉取新歌');
+        window.RoamingManager.playNext();
+        return;
+    }
+
     const currentIndex = getCurrentPlaylistIndex();
     let nextIndex;
 
@@ -1628,7 +1664,7 @@ function playNext() {
 }
 
 function handleSongEnded() {
-    if (window.RoamingManager && window.RoamingManager.isActive) {
+    if (window.RoamingManager && (window.RoamingManager.isActive || playerState.isRoaming)) {
         // 漫游模式下歌曲播放完毕，永不停止，自动切到下一首漫游随机歌曲
         window.RoamingManager.playNext();
         return;
@@ -1731,13 +1767,17 @@ async function playSongAtIndex(index, expectedGen = null) {
         finalAudioUrl = `${window.API_BASE}${finalAudioUrl.startsWith('/') ? '' : '/'}${finalAudioUrl}`;
     }
 
-    let isAvailable = await checkResourceAvailability(finalAudioUrl);
+    // [Defense 5] 漫游模式下已通过严格 playableFilter 过滤，跳过 HEAD 网络预检，实现秒级无缝切歌并防止后台 Autoplay 权限超时
+    let isAvailable = true;
+    if (!playerState.isRoaming) {
+        isAvailable = await checkResourceAvailability(finalAudioUrl);
 
-    // [Race Guard] 异步等待后检查代次，用户可能已点击新歌曲
-    if (myGeneration !== _playGeneration) {
-        setLoadingState(false);
-        console.log(`[Race Guard] Generation mismatch after HEAD check, aborting "${item.song}"`);
-        return false;
+        // [Race Guard] 异步等待后检查代次，用户可能已点击新歌曲
+        if (myGeneration !== _playGeneration) {
+            setLoadingState(false);
+            console.log(`[Race Guard] Generation mismatch after HEAD check, aborting "${item.song}"`);
+            return false;
+        }
     }
 
     // [Retry] 首次预检失败时，清除该 URL 的缓存并重试一次
@@ -2054,6 +2094,10 @@ function updateVolumeIcon(percent) {
 
 // ==================== 播放模式 ====================
 function cyclePlayMode() {
+    if (playerState.isRoaming) {
+        showNotification('当前处于随心漫游模式，已自动随机切歌');
+        return;
+    }
     const modes = ['sequence', 'loop', 'single', 'shuffle'];
     const currentIndex = modes.indexOf(playerState.playMode);
     playerState.playMode = modes[(currentIndex + 1) % modes.length];
@@ -2829,6 +2873,11 @@ function updateTapSyncUI() {
 console.log('✅ 播放器增强增强支撑函数已加载');
 // ==================== 下一首预加载 ====================
 function prefetchNextSong() {
+    if (window.RoamingManager && (window.RoamingManager.isActive || playerState.isRoaming)) {
+        // 漫游模式下接近尾声时（剩余 < 15秒），确保后台缓冲队列充满
+        window.RoamingManager.fillQueue();
+        return;
+    }
     if (playerState.playlist.length <= 1) return;
     if (playerState.playMode === 'single') return; // 单曲循环不需要预加载
 
@@ -2921,13 +2970,18 @@ const RoamingManager = {
                 // 启动后台预加载队列，维持储备
                 this.fillQueue();
             } else {
-                console.warn('[Roaming] 未能获取到有效的漫游歌曲');
-                showNotification('暂时无法获取随机歌曲，请检查网络连接');
-                this.stop(true);
+                console.warn('[Roaming] 首次未获取到有效漫游歌曲，2秒后自动重试');
+                showNotification('正在全库寻找音源，请稍候...');
+                setTimeout(() => {
+                    if (playerState.isRoaming) this.playNext();
+                }, 2000);
             }
         } catch (err) {
             console.error('[Roaming] 漫游启动异常:', err);
-            this.stop(true);
+            showNotification('网络繁忙，正在重试漫游抽歌...');
+            setTimeout(() => {
+                if (playerState.isRoaming) this.playNext();
+            }, 2000);
         } finally {
             if (btn) btn.classList.remove('loading');
             setLoadingState(false);
@@ -3005,10 +3059,10 @@ const RoamingManager = {
             await this.playRoamingTrack(nextTrack, /* recordHistory= */ true);
             this.fillQueue();
         } else if (playerState.isRoaming) {
-            console.warn('[Roaming] 缓冲耗尽且快速抽选未命中，1秒后重试');
+            console.warn('[Roaming] 缓冲耗尽且快速抽选未命中，1.5秒后重试');
             setTimeout(() => {
                 if (playerState.isRoaming) this.playNext();
-            }, 1000);
+            }, 1500);
         }
     },
 
@@ -3050,7 +3104,8 @@ const RoamingManager = {
         }
 
         const myGen = nextPlayGeneration();
-        playerState.playlist = [track];
+        // 播放列表同步包含当前歌曲与储备队列，彻底消除 playlist.length === 1 的单曲死循环陷阱
+        playerState.playlist = [track, ...this.queue];
         updatePlaylistUI();
 
         console.log(`[Roaming] 正在播放: "${track.song}" - ${track.artist} (Gen: ${myGen})`);
@@ -3067,8 +3122,12 @@ const RoamingManager = {
             return null;
         }
 
-        // 最多尝试 12 次跨艺人随机寻找有效歌曲
-        for (let attempt = 0; attempt < 12; attempt++) {
+        // 当前正在播放的曲目签名与队列内待播签名，用于绝对防重复
+        const currentSig = playerState.currentSong ? `${playerState.currentSong} - ${playerState.currentArtist}` : '';
+        const queuedSigs = new Set(this.queue.map(q => `${q.song} - ${q.artist}`));
+
+        // 最多尝试 20 次跨艺人随机寻找有效歌曲
+        for (let attempt = 0; attempt < 20; attempt++) {
             const randomArtist = artists[Math.floor(Math.random() * artists.length)];
             if (!randomArtist) continue;
 
@@ -3077,7 +3136,14 @@ const RoamingManager = {
             if (!albums || albums.length === 0) {
                 try {
                     const artistIdRaw = (randomArtist.id || "").toString().replace(/\D/g, '');
-                    const res = await fetch(`${window.API_BASE || ''}/api/songs?artistId=${artistIdRaw}&artist=${encodeURIComponent(randomArtist.name)}`);
+                    // 设置 4 秒超时控制器，防止后台上传卡死接口导致 fetch 无限挂起
+                    const controller = new AbortController();
+                    const fetchTimeout = setTimeout(() => controller.abort(), 4000);
+                    const res = await fetch(`${window.API_BASE || ''}/api/songs?artistId=${artistIdRaw}&artist=${encodeURIComponent(randomArtist.name)}`, {
+                        signal: controller.signal
+                    });
+                    clearTimeout(fetchTimeout);
+
                     if (res.ok) {
                         const json = await res.json();
                         const detail = json.data && json.data.length > 0 ? json.data[0] : null;
@@ -3087,7 +3153,6 @@ const RoamingManager = {
                         }
                     }
                 } catch (e) {
-                    console.warn(`[Roaming] 抽选拉取艺人 [${randomArtist.name}] 失败:`, e);
                     continue;
                 }
             }
@@ -3117,9 +3182,19 @@ const RoamingManager = {
             const songPath = typeof randomSong === 'string' ? null : randomSong.path;
             const songLrcPath = typeof randomSong === 'string' ? null : (randomSong.lrcPath || randomSong.lrc_path || null);
 
-            // 4. 去重检查 (优先保证全会话内永不重复，前 10 次尝试拒绝已播曲目)
             const sig = `${songName} - ${randomArtist.name}`;
-            if (this.recentSignatures.has(sig) && attempt < 10) {
+
+            // 4. 【核心防重复保护】
+            // (1) 绝对禁止抽选中当前正在播放的同一首歌！
+            if (currentSig && sig === currentSig) {
+                continue;
+            }
+            // (2) 绝对禁止抽选中已经在待播队列里的歌曲！
+            if (queuedSigs.has(sig)) {
+                continue;
+            }
+            // (3) 前 15 次尝试严格杜绝历史已播歌曲（500 首去重窗口）
+            if (this.recentSignatures.has(sig) && attempt < 15) {
                 continue;
             }
 
@@ -3174,18 +3249,24 @@ const RoamingManager = {
     },
 
     /**
-     * 后台维持储备缓冲队列 (保持 2 首储备)
+     * 后台维持储备缓冲队列 (保持 4 首储备，确保后台/网络波动下持续流畅播放)
      */
     fillQueue: async function () {
-        if (this.isFilling || !playerState.isRoaming || this.queue.length >= 2) return;
+        const QUEUE_TARGET = 4;
+        if (this.isFilling || !playerState.isRoaming || this.queue.length >= QUEUE_TARGET) return;
         this.isFilling = true;
 
         try {
-            while (playerState.isRoaming && this.queue.length < 2) {
+            while (playerState.isRoaming && this.queue.length < QUEUE_TARGET) {
                 const track = await this.pickRandomSong();
                 if (track && playerState.isRoaming) {
                     this.queue.push(track);
                     console.log(`[Roaming Queue] 预缓冲歌曲就绪: "${track.song}" - ${track.artist} (余量: ${this.queue.length})`);
+                    // 同步到播放列表 UI（当前歌 + 预缓冲队列）
+                    if (playerState.playlist && playerState.playlist.length > 0) {
+                        playerState.playlist = [playerState.playlist[0], ...this.queue];
+                        updatePlaylistUI();
+                    }
                 } else {
                     break;
                 }
