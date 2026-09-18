@@ -21,7 +21,9 @@
    - **Framework Preset**: 选择 `Static Site` 或 `Other`。
    - **Build Command**: 留空。
    - **Output Directory**: `.` (根目录)。
-4. **即刻访问**: 部署完成后，您将获得一个 `.vercel.app` 的二级域名。
+4. **即刻访问**:
+   - 官方线上主站（播放器）：[https://moody-music-archiv-vercel.vercel.app/](https://moody-music-archiv-vercel.vercel.app/)
+   - 官方管理后台（CMS）：[https://moody-music-archiv-vercel.vercel.app/admin/](https://moody-music-archiv-vercel.vercel.app/admin/)
 
 ## 🛠 维护说明
 - **API 调整**: 如果您的后端 Worker 域名发生变更，请修改 `src/js/app.js` 中的 `API_CONFIG.apiBase`。
