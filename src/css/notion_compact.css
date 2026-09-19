@@ -13,7 +13,6 @@ body.notion-compact-mode .sidebar {
 }
 
 body.notion-compact-mode .sb-brand,
-body.notion-compact-mode .sb-brand-row,
 body.notion-compact-mode .user-profile,
 body.notion-compact-mode .upload-section {
     display: none !important;

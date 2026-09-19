@@ -276,7 +276,6 @@ const dom = {
 // --- State ---
 let viewState = { sIdx: 0, aIdx: 0, category: '华语', search: '', viewMode: 'artist' }; // viewMode: 'artist' | 'local'
 let allArtistsData = [];
-window.allArtistsData = allArtistsData;
 // [New] 预加载定时器
 let prefetchTimeout = null;
 
@@ -622,11 +621,6 @@ function renderLocalMusicView() {
             // document.querySelectorAll('.st-row').forEach(el => el.classList.remove('active'));
             // tr.classList.add('active');
 
-            // 互斥保护：播放本地音乐时，退出漫游模式
-            if (window.RoamingManager && window.RoamingManager.isActive) {
-                window.RoamingManager.stop(true);
-            }
-
             // 尝试播放本地音乐
             console.log(`尝试播放本地音乐: ${song.songName} - ${song.artistName}`);
             if (window.audioPlayer && window.audioPlayer.play) {
@@ -655,11 +649,6 @@ function playLocalSong(e, songName, artistName) {
     const key = `${songName} - ${artistName}`;
     const song = localSongsMap.get(key);
     if (!song) return;
-
-    // 互斥保护：播放本地音乐时，退出漫游模式
-    if (window.RoamingManager && window.RoamingManager.isActive) {
-        window.RoamingManager.stop(true);
-    }
 
     // 调用播放器
     if (window.audioPlayer && window.audioPlayer.play) {
@@ -899,6 +888,22 @@ function getAutoLetter(name) {
     const firstChar = name.charAt(0).toUpperCase();
     if (/^[A-Z]/.test(firstChar)) return firstChar;
 
+    // 常见多音字姓氏直接特殊映射（例如：曾轶可 -> Z）
+    const surnameMap = {
+        '曾': 'Z',
+        '单': 'S',
+        '仇': 'Q',
+        '区': 'O',
+        '解': 'X',
+        '查': 'Z',
+        '朴': 'P',
+        '乐': 'Y',
+        '洗': 'X'
+    };
+    if (surnameMap[name.charAt(0)]) {
+        return surnameMap[name.charAt(0)];
+    }
+
     // 拼音区间对应表 (常用简体/繁体兼容首字符)
     const charMap = [
         ['啊', 'A'], ['八', 'B'], ['擦', 'C'], ['搭', 'D'], ['蛾', 'E'],
@@ -1044,7 +1049,6 @@ async function initApp() {
         return a.name.localeCompare(b.name, 'zh-CN');
     });
 
-    window.allArtistsData = allArtistsData;
     console.log('[MOODY] 系统初始化完成，载入', allArtistsData.length, '位艺术家');
 
     // 4. 加载本地 IndexedDB 手动上传的内容
@@ -2182,11 +2186,6 @@ async function playSong(e, songData, artist) {
     const name = typeof songData === 'string' ? songData : songData.title;
     e.stopPropagation();
 
-    // 互斥保护：点击专辑内歌曲播放时，必须立刻退出全局漫游模式
-    if (window.RoamingManager && window.RoamingManager.isActive) {
-        window.RoamingManager.stop(true);
-    }
-
     // 移除焦点，防止出现光标
     if (document.activeElement) {
         document.activeElement.blur();
@@ -2258,7 +2257,6 @@ window.deleteAudioFromIndexedDB = deleteAudioFromIndexedDB;
 
 // 将本地歌曲映射也导出到全局，方便其他模块访问
 window.localSongsMap = localSongsMap;
-window.allArtistsData = allArtistsData;
 
 // Run App（初始化由 HTML 中的脚本统一管理）
 // renderIndexBar(); // [Fix] Removed premature call
