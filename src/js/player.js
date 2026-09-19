@@ -210,11 +210,20 @@ function finishLoading() {
 let _playGeneration = 0;
 let _autoSkipTimer = null;
 let _retryTimer = null;
+let _mediaLoadingWatchdogTimer = null;
 let _activeResourceAbortController = null;
 let _activeLyricsAbortController = null;
 
+function clearMediaLoadingWatchdog() {
+    if (_mediaLoadingWatchdogTimer) {
+        clearTimeout(_mediaLoadingWatchdogTimer);
+        _mediaLoadingWatchdogTimer = null;
+    }
+}
+
 function nextPlayGeneration() {
     _playGeneration++;
+    clearMediaLoadingWatchdog();
 
     // 1. 物理掐断上一次未完成的资源预检网络请求
     if (_activeResourceAbortController) {
@@ -528,6 +537,7 @@ async function initPlayer() {
 
 function bindPlayerEvents() {
     player.audio.addEventListener('error', (e) => {
+        clearMediaLoadingWatchdog();
         console.error('播放出错:', e);
         const errorCode = player.audio.error ? player.audio.error.code : 0;
         let errorMsg = '播放出错';
@@ -581,7 +591,15 @@ function bindPlayerEvents() {
     });
 
 
+    player.audio.addEventListener('playing', () => {
+        clearMediaLoadingWatchdog();
+        setLoadingState(false);
+    });
+
     player.audio.addEventListener('timeupdate', () => {
+        if (player.audio.currentTime > 0) {
+            clearMediaLoadingWatchdog();
+        }
         playerState.currentTime = player.audio.currentTime;
         updateProgressBar();
         updateTimeDisplay();
@@ -597,6 +615,7 @@ function bindPlayerEvents() {
     });
 
     player.audio.addEventListener('ended', () => {
+        clearMediaLoadingWatchdog();
         handleSongEnded();
     });
 
@@ -608,6 +627,7 @@ function bindPlayerEvents() {
 
     player.audio.addEventListener('pause', () => {
         console.log('[Event] Audio pause');
+        clearMediaLoadingWatchdog();
         playerState.isPlaying = false;
         updatePlayPauseButton();
     });
@@ -1822,6 +1842,25 @@ async function playSongAtIndex(index, expectedGen = null) {
     playerState.currentAlbum = item.album;
     playerState.currentLrcPath = item.lrcPath; // 关键修复：确保路径被全局缓存
 
+    // [Watchdog] 启动 8 秒媒体流加载超时保护，防止弱网/跨域阻断导致的假死
+    clearMediaLoadingWatchdog();
+    const watchdogGen = myGeneration;
+    _mediaLoadingWatchdogTimer = setTimeout(() => {
+        if (watchdogGen === _playGeneration && (player.audio.currentTime === 0 || player.audio.readyState < 2)) {
+            console.warn(`[Watchdog] 媒体流加载超时(8s): "${item.song}", 自动切歌`);
+            showNotification(`⚠️ 音频加载超时，正在跳过...`);
+            clearMediaLoadingWatchdog();
+            try {
+                player.audio.pause();
+                player.audio.removeAttribute('src');
+                player.audio.load();
+            } catch (err) {}
+            setLoadingState(false);
+            _clearStaleHighlight();
+            autoSkipToNext('媒体流加载超时(8s)');
+        }
+    }, 8000);
+
     // [Modified] 必须等待播放结果，否则函数会立即返回 true
     try {
         await player.audio.play();
@@ -1917,6 +1956,7 @@ async function playSongAtIndex(index, expectedGen = null) {
         // 这样比"回滚到上一首"更符合直觉：播放失败就是没有高亮，autoSkipToNext 会高亮下一首
         _clearStaleHighlight();
 
+        clearMediaLoadingWatchdog();
         setLoadingState(false);
         playerState.isPlaying = false;
         updatePlayPauseButton();
