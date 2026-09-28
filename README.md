@@ -22,8 +22,9 @@
    - **Build Command**: 留空。
    - **Output Directory**: `.` (根目录)。
 4. **即刻访问**:
-   - 官方线上主站（播放器）：[https://moody-music-archiv-vercel.vercel.app/](https://moody-music-archiv-vercel.vercel.app/)
-   - 官方管理后台（CMS）：[https://moody-music-archiv-vercel.vercel.app/admin/](https://moody-music-archiv-vercel.vercel.app/admin/)
+   - Vercel 生产主站：[https://music.changgepd.ccwu.cc/](https://music.changgepd.ccwu.cc/)（备用：[https://moody-music-archiv-vercel.vercel.app/](https://moody-music-archiv-vercel.vercel.app/)）
+   - Netlify 生产主站（双活容灾）：[https://moody-music-web.netlify.app/](https://moody-music-web.netlify.app/)
+   - Netlify 管理后台（CMS）：[https://moody-music-web.netlify.app/admin/](https://moody-music-web.netlify.app/admin/)
 
 ## 🛠 维护说明
 - **API 调整**: 如果您的后端 Worker 域名发生变更，请修改 `src/js/app.js` 中的 `API_CONFIG.apiBase`。
