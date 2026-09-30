@@ -127,9 +127,86 @@ window.playerState = playerState;
 // ==================== 资源可用性缓存 (Resource Availability Cache) ====================
 window.resourceAvailabilityCache = new Map();
 
+// ==================== 音频 Blob 预缓存 (Audio Blob Cache) ====================
+// 用 fetch() + Blob URL 方案替代 Audio 对象预加载：
+//   - 彻底绕开 CDN 时间戳 (?t=) 导致 URL 不匹配的问题
+//   - Blob URL 直接指向内存数据，播放时 0 网络请求，真正的本地缓存
+//   - LRU 上限 3 首，防止大音频文件撑爆内存
+const _audioBlobCache = new Map();   // originalUrl → { blobUrl, size, ts }
+const _audioBlobFetching = new Set(); // 正在 fetch 中的 originalUrl（防并发）
+const BLOB_CACHE_MAX = 3;            // 最多缓存 3 首（约 15~30 MB）
+
+/**
+ * 获取已缓存的 Blob URL（若命中返回 blobUrl，否则返回 null）
+ * @param {string} originalUrl - 不含时间戳的原始 CDN URL
+ */
+function getBlobCacheUrl(originalUrl) {
+    const entry = _audioBlobCache.get(originalUrl);
+    if (!entry) return null;
+    entry.ts = Date.now(); // 刷新 LRU 访问时间
+    return entry.blobUrl;
+}
+
+/**
+ * 异步预取音频并存入 Blob 缓存（LRU 淘汰旧条目）
+ * @param {string} originalUrl - 不含时间戳的原始 CDN URL
+ * @param {string} songName - 仅用于日志
+ */
+async function prefetchAudioToBlob(originalUrl, songName) {
+    if (!originalUrl || !originalUrl.startsWith('http')) return;
+    if (_audioBlobCache.has(originalUrl)) return;  // 已缓存
+    if (_audioBlobFetching.has(originalUrl)) return; // 已在飞行中
+    _audioBlobFetching.add(originalUrl);
+
+    try {
+        console.log(`[BlobCache] ⬇️ 开始预取: "${songName}" (${originalUrl.split('/').pop()})`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s 超时
+        const resp = await fetch(originalUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const blobUrl = URL.createObjectURL(blob);
+
+        // LRU 淘汰：超出上限时释放最久未使用的条目
+        if (_audioBlobCache.size >= BLOB_CACHE_MAX) {
+            let oldest = null, oldestTs = Infinity;
+            for (const [url, entry] of _audioBlobCache) {
+                if (entry.ts < oldestTs) { oldestTs = entry.ts; oldest = url; }
+            }
+            if (oldest) {
+                URL.revokeObjectURL(_audioBlobCache.get(oldest).blobUrl);
+                _audioBlobCache.delete(oldest);
+                console.log(`[BlobCache] 🗑️ LRU 淘汰: ${oldest.split('/').pop()}`);
+            }
+        }
+
+        _audioBlobCache.set(originalUrl, { blobUrl, size: blob.size, ts: Date.now() });
+        console.log(`[BlobCache] ✅ 预取完成: "${songName}" (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+    } catch (e) {
+        if (e.name !== 'AbortError') {
+            console.warn(`[BlobCache] ⚠️ 预取失败 (将在播放时降级走 CDN): ${e.message}`);
+        }
+    } finally {
+        _audioBlobFetching.delete(originalUrl);
+    }
+}
+
+/**
+ * 释放所有 Blob URL 并清空缓存（stop / 页面卸载时调用）
+ */
+function clearAudioBlobCache() {
+    for (const entry of _audioBlobCache.values()) {
+        URL.revokeObjectURL(entry.blobUrl);
+    }
+    _audioBlobCache.clear();
+    _audioBlobFetching.clear();
+    console.log('[BlobCache] 🗑️ 全部缓存已释放');
+}
+window.addEventListener('beforeunload', clearAudioBlobCache);
+
 // ==================== 加载状态管理 ====================
-let _prefetchedUrl = null; // 已预加载的 URL
-let _prefetchAudio = null; // 预加载用的 Audio 对象
 let _loadingBar = null;    // 加载进度条 DOM 元素
 let _fakeTimer = null;     // 模拟进度定时器
 let _fakeProgress = 0;     // 当前模拟进度
@@ -1914,18 +1991,18 @@ async function playSongAtIndex(index, expectedGen = null) {
         return autoSkipToNext('资源不可用（重试后仍失败）');
     }
 
-    // [预加载复用] 若 prefetchNextSong 已预热了相同 URL 的 Audio 对象，直接复用其缓冲数据
-    // 通过交换 src 而非交换对象引用（避免破坏已绑定的事件监听）
-    if (_prefetchAudio && _prefetchedUrl && _prefetchedUrl === finalAudioUrl) {
-        console.log(`[Prefetch] ✅ 命中预加载缓存，直接复用: "${item.song}"`);
-        // 将预加载完成的 buffered 数据通过 src 传递给主播放器
-        // 注意：HTML5 Audio 不支持直接传递缓冲，此处复用 src 可利用浏览器 HTTP 缓存（磁盘/内存缓存）
-        player.audio.src = finalAudioUrl;
-        // 清理预加载对象，释放内存
-        _prefetchAudio.src = '';
-        _prefetchAudio = null;
-        _prefetchedUrl = null;
+    // [BlobCache 命中检查] 以原始 URL 为 key 查询 Blob 缓存
+    // 命中时直接使用本地 Blob URL，跳过时间戳注入与 CDN 网络请求（0 延迟）
+    const cachedBlobUrl = getBlobCacheUrl(item.audioUrl);
+    if (cachedBlobUrl) {
+        console.log(`[BlobCache] 🚀 命中！使用本地 Blob 播放: "${item.song}"`);
+        player.audio.src = cachedBlobUrl;
+        // 命中时同步标记资源可用，跳过 HEAD 预检结果的歧义
+        if (window.resourceAvailabilityCache) {
+            window.resourceAvailabilityCache.set(item.audioUrl, { available: true, timestamp: Date.now() });
+        }
     } else {
+        // 未命中：使用带时间戳的 CDN 直链（原有逻辑）
         player.audio.src = finalAudioUrl;
     }
 
@@ -3015,19 +3092,9 @@ function prefetchNextSong() {
     const nextItem = playerState.playlist[nextIndex];
     if (!nextItem || !nextItem.audioUrl) return;
 
-    // 避免重复预加载
-    if (_prefetchedUrl === nextItem.audioUrl) return;
-    _prefetchedUrl = nextItem.audioUrl;
-
-    // 静默预加载：创建隐藏的 Audio 对象加载数据
-    if (_prefetchAudio) {
-        _prefetchAudio.src = '';
-        _prefetchAudio = null;
-    }
-    _prefetchAudio = new Audio();
-    _prefetchAudio.preload = 'auto';
-    _prefetchAudio.src = nextItem.audioUrl;
-    console.log(`[Prefetch] 🚀 预加载下一首: "${nextItem.song}" (${nextItem.audioUrl.split('/').pop()})`);
+    // [BlobCache] 以 originalUrl 为 key 预取，避免旧方案 URL 不匹配问题
+    // prefetchAudioToBlob 内部已有防重复机制（_audioBlobFetching / _audioBlobCache）
+    prefetchAudioToBlob(nextItem.audioUrl, nextItem.song);
 }
 
 // ==================== 随心漫游引擎 (RoamingManager) ====================
