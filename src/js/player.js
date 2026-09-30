@@ -211,6 +211,7 @@ let _playGeneration = 0;
 let _autoSkipTimer = null;
 let _retryTimer = null;
 let _mediaLoadingWatchdogTimer = null;
+let _watchdogRetryCount = 0; // 看门狗重试计数（每次切新歌重置）
 let _activeResourceAbortController = null;
 let _activeLyricsAbortController = null;
 
@@ -221,8 +222,63 @@ function clearMediaLoadingWatchdog() {
     }
 }
 
+/**
+ * 启动自适应看门狗（最多重试 2 次后才跳下一首）
+ * 每次重试延长超时窗口（8s → 10s → 12s），给弱网更多机会
+ * @param {object} item - 当前播放项
+ * @param {string} audioUrl - 最终音频 URL
+ * @param {number} generation - 当前播放代次
+ * @param {function} autoSkipFn - 跳下一首回调
+ * @param {number} timeoutMs - 本次超时毫秒数（默认 8000）
+ */
+function _startWatchdog(item, audioUrl, generation, autoSkipFn, timeoutMs = 8000) {
+    clearMediaLoadingWatchdog();
+    _mediaLoadingWatchdogTimer = setTimeout(() => {
+        // 代次保护：若用户已切换新歌，静默退出
+        if (generation !== _playGeneration) return;
+        // 已开始正常播放，取消看门狗
+        if (player.audio.currentTime > 0 && player.audio.readyState >= 2) return;
+
+        if (_watchdogRetryCount < 2) {
+            _watchdogRetryCount++;
+            const nextTimeout = timeoutMs + 2000; // 每次重试延长 2s
+            console.warn(`[Watchdog] 超时(${timeoutMs}ms) 第 ${_watchdogRetryCount} 次重试: "${item.song}", 下次超时: ${nextTimeout}ms`);
+            showNotification(`⏳ 网络波动，正在重试第 ${_watchdogRetryCount} 次...`);
+            // 重置 audio 元素，触发重新请求 CDN
+            try {
+                player.audio.pause();
+                player.audio.src = '';
+                player.audio.load();
+            } catch (e) {}
+            // 短暂延迟后重新设置 src，让浏览器重新发起媒体流请求
+            setTimeout(() => {
+                if (generation !== _playGeneration) return;
+                player.audio.src = audioUrl;
+                player.audio.play().catch(() => {});
+                // 递归重启看门狗，延长超时窗口
+                _startWatchdog(item, audioUrl, generation, autoSkipFn, nextTimeout);
+            }, 600);
+        } else {
+            // 重试 2 次仍失败，跳下一首
+            _watchdogRetryCount = 0;
+            console.warn(`[Watchdog] 《${item.song}》重试 2 次后仍超时，跳下一首`);
+            showNotification(`⚠️ 《${item.song}》网络较慢，已为您切换下一首`);
+            clearMediaLoadingWatchdog();
+            try {
+                player.audio.pause();
+                player.audio.removeAttribute('src');
+                player.audio.load();
+            } catch (err) {}
+            setLoadingState(false);
+            _clearStaleHighlight();
+            autoSkipFn('媒体流加载超时(已重试2次)');
+        }
+    }, timeoutMs);
+}
+
 function nextPlayGeneration() {
     _playGeneration++;
+    _watchdogRetryCount = 0; // 切新歌时重置看门狗重试计数
     clearMediaLoadingWatchdog();
 
     // 1. 物理掐断上一次未完成的资源预检网络请求
@@ -1858,30 +1914,28 @@ async function playSongAtIndex(index, expectedGen = null) {
         return autoSkipToNext('资源不可用（重试后仍失败）');
     }
 
-    player.audio.src = finalAudioUrl;
+    // [预加载复用] 若 prefetchNextSong 已预热了相同 URL 的 Audio 对象，直接复用其缓冲数据
+    // 通过交换 src 而非交换对象引用（避免破坏已绑定的事件监听）
+    if (_prefetchAudio && _prefetchedUrl && _prefetchedUrl === finalAudioUrl) {
+        console.log(`[Prefetch] ✅ 命中预加载缓存，直接复用: "${item.song}"`);
+        // 将预加载完成的 buffered 数据通过 src 传递给主播放器
+        // 注意：HTML5 Audio 不支持直接传递缓冲，此处复用 src 可利用浏览器 HTTP 缓存（磁盘/内存缓存）
+        player.audio.src = finalAudioUrl;
+        // 清理预加载对象，释放内存
+        _prefetchAudio.src = '';
+        _prefetchAudio = null;
+        _prefetchedUrl = null;
+    } else {
+        player.audio.src = finalAudioUrl;
+    }
+
     playerState.currentSong = item.song;
     playerState.currentArtist = item.artist;
     playerState.currentAlbum = item.album;
     playerState.currentLrcPath = item.lrcPath; // 关键修复：确保路径被全局缓存
 
-    // [Watchdog] 启动 8 秒媒体流加载超时保护，防止弱网/跨域阻断导致的假死
-    clearMediaLoadingWatchdog();
-    const watchdogGen = myGeneration;
-    _mediaLoadingWatchdogTimer = setTimeout(() => {
-        if (watchdogGen === _playGeneration && (player.audio.currentTime === 0 || player.audio.readyState < 2)) {
-            console.warn(`[Watchdog] 媒体流加载超时(8s): "${item.song}", 自动切歌`);
-            showNotification(`⚠️ 音频加载超时，正在跳过...`);
-            clearMediaLoadingWatchdog();
-            try {
-                player.audio.pause();
-                player.audio.removeAttribute('src');
-                player.audio.load();
-            } catch (err) {}
-            setLoadingState(false);
-            _clearStaleHighlight();
-            autoSkipToNext('媒体流加载超时(8s)');
-        }
-    }, 8000);
+    // [Watchdog] 启动自适应看门狗（最多重试 2 次，与 App 端对齐）
+    _startWatchdog(item, finalAudioUrl, myGeneration, autoSkipToNext);
 
     // [Modified] 必须等待播放结果，否则函数会立即返回 true
     try {
