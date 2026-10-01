@@ -153,26 +153,42 @@ function getBlobCacheUrl(originalUrl) {
  * @param {string} songName - 仅用于日志
  */
 async function prefetchAudioToBlob(originalUrl, songName) {
-    if (!originalUrl || !originalUrl.startsWith('http')) return;
+    if (!originalUrl) return;
+
+    // 规范化预取目标地址（旧域名替换与相对路径补全）
+    let targetUrl = originalUrl;
+    if (targetUrl.includes('r2.changgepd.ccwu.cc')) {
+        targetUrl = targetUrl.replace('https://r2.changgepd.ccwu.cc', 'https://pub-ade3407baf1041b49b5949a2539067f7.r2.dev');
+    }
+    const apiBase = window.API_BASE || window.MOODY_CONFIG?.API_BASE || '';
+    if (!targetUrl.startsWith('http') && !targetUrl.startsWith('/src/') && apiBase) {
+        targetUrl = `${apiBase}${targetUrl.startsWith('/') ? '' : '/'}${targetUrl}`;
+    }
+    if (!targetUrl.startsWith('http')) return;
+
     if (_audioBlobCache.has(originalUrl)) return;  // 已缓存
     if (_audioBlobFetching.has(originalUrl)) return; // 已在飞行中
     _audioBlobFetching.add(originalUrl);
 
     try {
-        console.log(`[BlobCache] ⬇️ 开始预取: "${songName}" (${originalUrl.split('/').pop()})`);
+        console.log(`[BlobCache] ⬇️ 开始预取: "${songName}" (${targetUrl.split('/').pop()})`);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s 超时
-        const resp = await fetch(originalUrl, { signal: controller.signal });
+        const resp = await fetch(targetUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const blob = await resp.blob();
         const blobUrl = URL.createObjectURL(blob);
 
-        // LRU 淘汰：超出上限时释放最久未使用的条目
+        // LRU 淘汰：超出上限时释放最久未使用的条目（保护当前正在播放的音频）
         if (_audioBlobCache.size >= BLOB_CACHE_MAX) {
             let oldest = null, oldestTs = Infinity;
             for (const [url, entry] of _audioBlobCache) {
+                // 保护正在播放的曲目不被提前销毁
+                if (playerState.currentSong && url === (playerState.playlist?.[getCurrentPlaylistIndex()]?.audioUrl)) {
+                    continue;
+                }
                 if (entry.ts < oldestTs) { oldestTs = entry.ts; oldest = url; }
             }
             if (oldest) {
@@ -1926,83 +1942,77 @@ async function playSongAtIndex(index, expectedGen = null) {
     // 显示加载状态
     setLoadingState(true);
 
-    // 2. 资源可用性预检 (Web Audio API / Data URL 除外)
-    // [V14.2] 本地开发环境相对路径统一代理修正与集群域名规范化
-    let finalAudioUrl = item.audioUrl;
-    if (finalAudioUrl && finalAudioUrl.includes('r2.changgepd.ccwu.cc')) {
-        finalAudioUrl = finalAudioUrl.replace('https://r2.changgepd.ccwu.cc', 'https://pub-ade3407baf1041b49b5949a2539067f7.r2.dev');
-    }
-    const apiBase = window.API_BASE || window.MOODY_CONFIG?.API_BASE || '';
-    if (finalAudioUrl && !finalAudioUrl.startsWith('http') && apiBase) {
-        finalAudioUrl = `${apiBase}${finalAudioUrl.startsWith('/') ? '' : '/'}${finalAudioUrl}`;
-    }
-    // 统一为所有直连音频注入时间戳，强力击穿 CDN 历史跨域头缺失脏缓存
-    if (finalAudioUrl && finalAudioUrl.startsWith('http') && !finalAudioUrl.includes('?t=') && !finalAudioUrl.includes('&t=')) {
-        const separator = finalAudioUrl.includes('?') ? '&' : '?';
-        finalAudioUrl = `${finalAudioUrl}${separator}t=${Date.now()}`;
-    }
-
-    // [Defense 5] 漫游模式下已通过严格 playableFilter 过滤，跳过 HEAD 网络预检，实现秒级无缝切歌并防止后台 Autoplay 权限超时
-    let isAvailable = true;
-    if (!playerState.isRoaming) {
-        isAvailable = await checkResourceAvailability(finalAudioUrl);
-
-        // [Race Guard] 异步等待后检查代次，用户可能已点击新歌曲
-        if (myGeneration !== _playGeneration) {
-            setLoadingState(false);
-            console.log(`[Race Guard] Generation mismatch after HEAD check, aborting "${item.song}"`);
-            return false;
-        }
-    }
-
-    // [Retry] 首次预检失败时，清除该 URL 的缓存并重试一次
-    // 给容错空间，避免因缓存旧的失败结果而误判
-    if (!isAvailable) {
-        console.warn(`[Retry] HEAD check failed for "${item.song}", clearing cache and retrying once...`);
-        if (window.resourceAvailabilityCache) {
-            window.resourceAvailabilityCache.delete(finalAudioUrl);
-        }
-        if (_retryTimer) clearTimeout(_retryTimer);
-        await new Promise(resolve => {
-            _retryTimer = setTimeout(resolve, 500);
-        });
-
-        // 重试后再次检查代次
-        if (myGeneration !== _playGeneration) {
-            setLoadingState(false);
-            console.log(`[Race Guard] Generation mismatch after retry wait, aborting "${item.song}"`);
-            return false;
-        }
-
-        isAvailable = await checkResourceAvailability(finalAudioUrl);
-
-        // 重试后再次检查代次
-        if (myGeneration !== _playGeneration) {
-            setLoadingState(false);
-            console.log(`[Race Guard] Generation mismatch after retry, aborting "${item.song}"`);
-            return false;
-        }
-    }
-
-    if (!isAvailable) {
-        setLoadingState(false);
-        // 清除乐观高亮（不恢复旧歌曲），autoSkipToNext 会高亮下一首
-        _clearStaleHighlight();
-        return autoSkipToNext('资源不可用（重试后仍失败）');
-    }
-
-    // [BlobCache 命中检查] 以原始 URL 为 key 查询 Blob 缓存
-    // 命中时直接使用本地 Blob URL，跳过时间戳注入与 CDN 网络请求（0 延迟）
+    // 2. 检查本地 Blob 预缓存
+    // [BlobCache 优先命中] 以原始 URL 为 key 查询 Blob 缓存
+    // 命中时直接使用本地已预下载的 Blob URL，跳过 HEAD 预检与 CDN 网络请求，实现真正意义上的 0 延迟起播！
     const cachedBlobUrl = getBlobCacheUrl(item.audioUrl);
     if (cachedBlobUrl) {
-        console.log(`[BlobCache] 🚀 命中！使用本地 Blob 播放: "${item.song}"`);
+        console.log(`[BlobCache] 🚀 命中预缓存！直接使用本地内存 Blob 播放: "${item.song}"`);
         player.audio.src = cachedBlobUrl;
-        // 命中时同步标记资源可用，跳过 HEAD 预检结果的歧义
         if (window.resourceAvailabilityCache) {
             window.resourceAvailabilityCache.set(item.audioUrl, { available: true, timestamp: Date.now() });
         }
     } else {
-        // 未命中：使用带时间戳的 CDN 直链（原有逻辑）
+        // 未命中 Blob 缓存，走常规网络 CDN 预检与加载逻辑
+        let finalAudioUrl = item.audioUrl;
+        if (finalAudioUrl && finalAudioUrl.includes('r2.changgepd.ccwu.cc')) {
+            finalAudioUrl = finalAudioUrl.replace('https://r2.changgepd.ccwu.cc', 'https://pub-ade3407baf1041b49b5949a2539067f7.r2.dev');
+        }
+        const apiBase = window.API_BASE || window.MOODY_CONFIG?.API_BASE || '';
+        if (finalAudioUrl && !finalAudioUrl.startsWith('http') && apiBase) {
+            finalAudioUrl = `${apiBase}${finalAudioUrl.startsWith('/') ? '' : '/'}${finalAudioUrl}`;
+        }
+        // 统一为所有直连音频注入时间戳，强力击穿 CDN 历史跨域头缺失脏缓存
+        if (finalAudioUrl && finalAudioUrl.startsWith('http') && !finalAudioUrl.includes('?t=') && !finalAudioUrl.includes('&t=')) {
+            const separator = finalAudioUrl.includes('?') ? '&' : '?';
+            finalAudioUrl = `${finalAudioUrl}${separator}t=${Date.now()}`;
+        }
+
+        // [Defense 5] 漫游模式下已通过严格 playableFilter 过滤，跳过 HEAD 网络预检
+        let isAvailable = true;
+        if (!playerState.isRoaming) {
+            isAvailable = await checkResourceAvailability(finalAudioUrl);
+
+            // [Race Guard] 异步等待后检查代次，用户可能已点击新歌曲
+            if (myGeneration !== _playGeneration) {
+                setLoadingState(false);
+                console.log(`[Race Guard] Generation mismatch after HEAD check, aborting "${item.song}"`);
+                return false;
+            }
+        }
+
+        // [Retry] 首次预检失败时，清除该 URL 的缓存并重试一次
+        if (!isAvailable) {
+            console.warn(`[Retry] HEAD check failed for "${item.song}", clearing cache and retrying once...`);
+            if (window.resourceAvailabilityCache) {
+                window.resourceAvailabilityCache.delete(finalAudioUrl);
+            }
+            if (_retryTimer) clearTimeout(_retryTimer);
+            await new Promise(resolve => {
+                _retryTimer = setTimeout(resolve, 500);
+            });
+
+            if (myGeneration !== _playGeneration) {
+                setLoadingState(false);
+                console.log(`[Race Guard] Generation mismatch after retry wait, aborting "${item.song}"`);
+                return false;
+            }
+
+            isAvailable = await checkResourceAvailability(finalAudioUrl);
+
+            if (myGeneration !== _playGeneration) {
+                setLoadingState(false);
+                console.log(`[Race Guard] Generation mismatch after retry, aborting "${item.song}"`);
+                return false;
+            }
+        }
+
+        if (!isAvailable) {
+            setLoadingState(false);
+            _clearStaleHighlight();
+            return autoSkipToNext('资源不可用（重试后仍失败）');
+        }
+
         player.audio.src = finalAudioUrl;
     }
 

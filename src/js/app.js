@@ -2161,7 +2161,7 @@ function checkAlbumResources(artistName, album) {
     // console.log(`[Prefetch] 启动专辑资源预检: ${album.title}`);
 
     const checkTask = () => {
-        currentSongs.forEach((songData, i) => {
+        album.songs.forEach((songData, i) => {
             const songName = typeof songData === 'string' ? songData : songData.title;
             const songPath = typeof songData === 'string' ? null : songData.path;
 
