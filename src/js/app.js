@@ -2055,7 +2055,12 @@ async function updateView() {
                         foundAlbum = artistsRes[0].albums.find(a => a.title === album.title) || artistsRes[0].albums[0];
                     }
                     if (foundAlbum && foundAlbum.songs && foundAlbum.songs.length > 0) {
-                        currentSongs = foundAlbum.songs;
+                        currentSongs = foundAlbum.songs.map(s => {
+                            if (s && s.path && window.MoodyGuard) {
+                                s.path = window.MoodyGuard.decryptPath(s.path);
+                            }
+                            return s;
+                        });
                         album.songs = currentSongs;
                     }
                 }
@@ -2206,6 +2211,9 @@ function checkAlbumResources(artistName, album) {
 }
 
 async function playSong(e, songData, artist) {
+    if (songData && typeof songData === 'object' && songData.path && window.MoodyGuard) {
+        songData.path = window.MoodyGuard.decryptPath(songData.path);
+    }
     const name = typeof songData === 'string' ? songData : songData.title;
     e.stopPropagation();
 

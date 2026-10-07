@@ -154,6 +154,9 @@ function getBlobCacheUrl(originalUrl) {
  */
 async function prefetchAudioToBlob(originalUrl, songName) {
     if (!originalUrl) return;
+    if (window.MoodyGuard) {
+        originalUrl = window.MoodyGuard.decryptPath(originalUrl);
+    }
 
     // 规范化预取目标地址（旧域名替换与相对路径补全）
     let targetUrl = originalUrl;
@@ -3394,7 +3397,10 @@ const RoamingManager = {
             if (playableSongs.length === 0) continue;
             const randomSong = playableSongs[Math.floor(Math.random() * playableSongs.length)];
             const songName = typeof randomSong === 'string' ? randomSong : randomSong.title;
-            const songPath = typeof randomSong === 'string' ? null : randomSong.path;
+            let songPath = typeof randomSong === 'string' ? null : randomSong.path;
+            if (songPath && window.MoodyGuard) {
+                songPath = window.MoodyGuard.decryptPath(songPath);
+            }
             const songLrcPath = typeof randomSong === 'string' ? null : (randomSong.lrcPath || randomSong.lrc_path || null);
 
             const sig = `${songName} - ${randomArtist.name}`;
@@ -3503,6 +3509,9 @@ window.audioPlayer = {
             window.RoamingManager.stop(true);
         }
         let finalUrl = audioUrl;
+        if (finalUrl && window.MoodyGuard) {
+            finalUrl = window.MoodyGuard.decryptPath(finalUrl);
+        }
         if (finalUrl && finalUrl.includes('r2.changgepd.ccwu.cc')) {
             finalUrl = finalUrl.replace('https://r2.changgepd.ccwu.cc', 'https://pub-ade3407baf1041b49b5949a2539067f7.r2.dev');
         }
@@ -3537,7 +3546,10 @@ window.audioPlayer = {
         for (let i = 0; i < songs.length; i++) {
             const songData = songs[i];
             const songName = typeof songData === 'string' ? songData : songData.title;
-            const songPath = typeof songData === 'string' ? null : songData.path;
+            let songPath = typeof songData === 'string' ? null : songData.path;
+            if (songPath && window.MoodyGuard) {
+                songPath = window.MoodyGuard.decryptPath(songPath);
+            }
             // 兼容后端蛇形命名 lrc_path 与前端驼峰命名 lrcPath，防止歌词路径丢失
             const songLrcPath = typeof songData === 'string' ? null : (songData.lrcPath || songData.lrc_path || null);
 
