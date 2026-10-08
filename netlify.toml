@@ -12,3 +12,15 @@
   for = "/src/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://moody-music-gateway.netlify.app/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/storage/*"
+  to = "https://moody-music-gateway.netlify.app/storage/:splat"
+  status = 200
+  force = true

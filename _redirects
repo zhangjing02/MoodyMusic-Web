@@ -1,0 +1,2 @@
+/api/*  https://moody-music-gateway.netlify.app/api/:splat  200!
+/storage/*  https://moody-music-gateway.netlify.app/storage/:splat  200!
